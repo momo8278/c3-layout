@@ -55,6 +55,11 @@ main.split .pane+.pane{border-left:1px solid #cfc8bf}
 .knob{width:52px;height:52px;border-radius:50%;background:rgba(47,111,120,.85);box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none}
 @media (hover:hover) and (pointer:fine){.joy{display:none}}
 .modal.wide{max-width:640px}
+.libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.libgrid .libitem{width:100%}
+.menu button.menuhi{color:#2f6f78;font-weight:700}
+.hint-desk{display:none}
+@media (hover:hover) and (pointer:fine){.hint-desk{display:inline}.hint-touch{display:none}}
 .finbar{display:flex;flex-direction:column;gap:8px}
 .finrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .finrow.scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
@@ -88,6 +93,22 @@ main.split .pane+.pane{border-left:1px solid #cfc8bf}
 .psempty{color:#d8cfc4;text-align:center;line-height:1.6}
 .pspanel{background:#fff;border-radius:14px 14px 0 0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;max-height:46%;overflow:auto}
 .psrange input{width:150px}
+.pspanel>*{flex-shrink:0}
+.psadd.del{border-style:solid;border-color:#7a4a40;color:#f2b8ab}
+.psadd.del.ask{background:#c0392b;border-color:#c0392b;color:#fff}
+.chip.delchip{color:#c0392b;border-color:#e3b8b0;background:#fff}
+@media (max-width:600px){
+ .pshd{gap:6px;padding-left:10px;padding-right:6px}
+ .pshd strong{font-size:15px}
+ .pspanel{gap:6px;padding-top:8px;max-height:52%}
+ .pspanel .mnote{font-size:12px}
+ .pspanel .ic{min-height:40px;padding:6px 10px;font-size:14px;min-width:0}
+ .pspanel .seg.light button{min-height:36px;padding:4px 10px;font-size:14px}
+ .pspanel .chip{min-height:36px;padding:4px 12px;font-size:13px}
+ .pspanel .sw{width:62px;padding:4px 2px;font-size:11px}
+ .pspanel .sw i{width:38px;height:38px}
+ .psfoot{display:none}
+}
 .ic:disabled{opacity:.45}
 .sitem.chk{flex-direction:row;align-items:center;justify-content:space-between}
 .sitem.chk .sb{flex:none;min-width:64px}
@@ -298,6 +319,7 @@ const LIB = {
   toilet: { name: "馬桶", w: 40, d: 65, h: 75, cat: "廚衛" },
   sink: { name: "洗手台", w: 60, d: 45, h: 87, cat: "廚衛" },
   tub: { name: "浴缸", w: 150, d: 75, h: 55, cat: "廚衛" },
+  shower: { name: "淋浴間", w: 151, d: 85, h: 200, cat: "廚衛" },
 };
 // 插座：沿用傢俱資料結構，h = 離地安裝高度；tag 為圖示文字，power = 是否為電源插座，serves = 專用對象（不算被它擋住）
 const OUTLETS = {
@@ -372,11 +394,13 @@ const defaultItems = (ceil = CEIL_DEF) => [
   mk("bedQ", 729, 150, 90), mk("nightstand", 809, 35.5, 90), mk("nightstand", 809, 264.5, 90),
   mk("wardrobe", 546, 130, 270, { w: 240 }),
   // 主浴
-  mk("tub", 794, 358.5, 0), mk("toilet", 760, 436.5, 180), mk("sink", 830, 446.5, 180),
+  // 依主浴照片：浴缸在東側窗下（填滿南北寬）、南牆由內到外是馬桶、木作洗手台
+  mk("tub", 831.5, 395, 90, { w: 148 }), mk("toilet", 760, 436.5, 180), mk("sink", 685, 446.5, 180, { w: 70 }),
   // 次臥
   mk("bed", 734, 585, 90), mk("wardrobe", 543.5, 641, 270, { w: 145, d: 55 }), mk("desk", 625, 689, 180),
   // 客浴
   mk("toilet", 379.5, 690, 90), mk("sink", 389.5, 620, 90),
+  mk("shower", 336.5, 767.5, 180), // 客浴最內側整面淋浴間（依現場照片）
   // 廚房、陽台、走道
   // 廚房由西到東：電器櫃、冰箱（對齊弱電圖的冰箱插座 x≈573）、流理台
   mk("appliance", 459, 881.5, 180, { w: 70, h: ceil }), mk("fridge", 535, 874, 180),
@@ -634,7 +658,7 @@ const FILL = {
   bench: "#c49a6c", glasscab: "#4a4542", dtable: "#c49a6c", desk: "#c49a6c", chair: "#b38a5e",
   bed: "#f7f4ee", bedQ: "#f7f4ee", bedS: "#f7f4ee", nightstand: "#c49a6c", bookshelf: "#c49a6c",
   piano: "#2f2b28", plant: "#8aa077", fridge: "#e1e1df", counter: "#e5ddd0", washer: "#f4f4f2",
-  toilet: "#fbfbfa", sink: "#fbfbfa", tub: "#fbfbfa", column: "#2f2b28", storeroom: "#d2b48c",
+  toilet: "#fbfbfa", sink: "#fbfbfa", tub: "#fbfbfa", column: "#2f2b28", storeroom: "#d2b48c", shower: "#dfe6e8",
 };
 const DARK = new Set(["glasscab", "piano", "chair", "plant", "column"]);
 
@@ -671,6 +695,10 @@ function ItemShape({ it }) {
   if (type === "tvcab") {
     const tw = Math.min(w * 0.55, 190);
     extra.push(h("rect", { key: "tv", x: -tw / 2, y: -d / 2 + 1, width: tw, height: 5, fill: C.black }));
+  }
+  if (type === "shower") {
+    extra.push(h("rect", { key: "tray", x: -w / 2 + 4, y: -d / 2 + 4, width: w - 8, height: d - 14, fill: "#5a5a5d", opacity: 0.55 }));
+    extra.push(h("line", { key: "glass", x1: -w / 2, y1: d / 2 - 4, x2: w / 2, y2: d / 2 - 4, stroke: "#7aa7b0", strokeWidth: 3 }));
   }
   if (type === "storeroom") {
     extra.push(h("rect", { key: "hatch", x: -w / 2, y: -d / 2, width: w, height: d, fill: "url(#hatch)" }));
@@ -1129,6 +1157,23 @@ function buildItem(it, wallH) {
       addGeo(g, new THREE.CylinderGeometry(4, 5, 13, 14), C.white, w * 0.28, lowTop + 9, back + 10);
       break;
     }
+    case "shower": {
+      // 依客浴照片：深色地磚＋白色擋水條、前方兩片透明玻璃拉門、側牆一道花磚、淋浴滑桿龍頭
+      const gh = Math.min(hgt, wallH - 5);
+      addBox(g, w, 2, d, "#3f3f42", 0, 0, 0, false);
+      addBox(g, w, 4, 5, C.white, 0, 0, d / 2 - 2.5);
+      addBox(g, w / 2 + 6, gh - 4, 1, glassMat(), -w / 4 + 3, 4, d / 2 - 4, false);
+      addBox(g, w / 2 + 6, gh - 4, 1, glassMat(), w / 4 - 3, 4, d / 2 - 7, false);
+      addBox(g, w, 2.5, 3, "#c9cdd0", 0, gh - 2.5, d / 2 - 5.5);
+      [-1, 1].forEach((s) => addBox(g, 2, gh, 4, "#c9cdd0", s * (w / 2 - 1), 0, d / 2 - 5.5));
+      addBox(g, 1, gh - 2, Math.min(32, d * 0.4), accentTileMat(), -w / 2 + 0.6, 2, 0, false);
+      const rx = -w * 0.18;
+      addBox(g, 2, 110, 2, "#c9cdd0", rx, 85, back + 3);
+      addBox(g, 8, 3, 8, "#dfe2e4", rx, 182, back + 7);
+      addBox(g, 14, 6, 6, "#c9cdd0", rx, 95, back + 4);
+      addBox(g, 22, 1.5, 12, "#c9cdd0", rx - 22, 120, back + 7);
+      break;
+    }
     case "appliance": {
       // 參考圖：底部抽屜、微波爐層、咖啡機層、烤箱層（各層開放＋燈條）、上櫃兩門到頂
       const sideT = 2, inner = w - sideT * 2, sh = [0, 42, 88, 128, 170];
@@ -1282,8 +1327,10 @@ function buildItem(it, wallH) {
       break;
     }
     case "tub": {
+      // 嵌入式浴缸：白色缸體＋前方白色大理石紋裙邊（依主浴照片）
       addBox(g, w, hgt, d, C.white);
       addBox(g, w - 16, 0.6, d - 16, "#cfe2e6", 0, hgt, 0, false);
+      addBox(g, w, hgt - 4, 1, whiteMarbleWallMat(w, hgt - 4), 0, 0, d / 2 + 0.5, false);
       break;
     }
     case "column": addBox(g, w, wallH, d, mat("#f4f0ea", { roughness: 0.92 })); break;
@@ -1437,6 +1484,39 @@ function drawSpecks(x, base, colors, n, rmin, rmax, seed, alpha) {
   }
   x.globalAlpha = 1;
 }
+// 大理石紋磁磚：每片各自畫紋路，tw×th 為單片在 512 畫布上的像素
+function drawStoneTiles(x, base, vein, tw, th, seed) {
+  const R = rng(seed);
+  x.fillStyle = base; x.fillRect(0, 0, PS, PS);
+  for (let ty = 0; ty < PS; ty += th) for (let tx = 0; tx < PS; tx += tw) {
+    x.save(); x.beginPath(); x.rect(tx, ty, tw, th); x.clip();
+    const v = R() * 12 - 6;
+    x.fillStyle = `rgba(${128 + v},${128 + v},${125 + v},0.08)`; x.fillRect(tx, ty, tw, th);
+    for (let k = 0; k < 9; k++) {
+      x.strokeStyle = `${vein}${0.05 + R() * 0.12})`; x.lineWidth = 1 + R() * 5;
+      x.beginPath(); let px = tx - 20, py = ty + R() * th; x.moveTo(px, py);
+      for (let s = 0; s < 6; s++) { px += tw / 5; py += R() * 30 - 15; x.lineTo(px, py); }
+      x.stroke();
+    }
+    x.restore();
+  }
+  x.strokeStyle = "rgba(90,90,88,0.45)"; x.lineWidth = 2;
+  for (let v = 0; v <= PS; v += tw) { x.beginPath(); x.moveTo(v, 0); x.lineTo(v, PS); x.stroke(); }
+  for (let v = 0; v <= PS; v += th) { x.beginPath(); x.moveTo(0, v); x.lineTo(PS, v); x.stroke(); }
+}
+// 白大理石八角磚：60×60 白大理石紋，四角切出黑色小菱形（依主浴照片）
+function drawOctagon(x) {
+  drawStoneTiles(x, "#f2f1ee", "rgba(120,120,118,", 256, 256, 37);
+  const r = 34;
+  x.fillStyle = "#2b2b2e";
+  for (let ty = 0; ty <= PS; ty += 256) for (let tx = 0; tx <= PS; tx += 256) {
+    x.beginPath(); x.moveTo(tx, ty - r); x.lineTo(tx + r, ty); x.lineTo(tx, ty + r); x.lineTo(tx - r, ty); x.closePath(); x.fill();
+  }
+  x.strokeStyle = "rgba(140,140,138,0.5)"; x.lineWidth = 1.5;
+  for (let ty = 0; ty <= PS; ty += 256) for (let tx = 0; tx <= PS; tx += 256) {
+    x.beginPath(); x.moveTo(tx - r, ty); x.lineTo(tx, ty + r); x.lineTo(tx + r, ty); x.lineTo(tx, ty - r); x.closePath(); x.stroke();
+  }
+}
 function drawTile(x) {
   drawSpecks(x, "#d1cec8", ["#c9c6bf", "#d8d5cf"], 600, 4, 18, 5, 0.35);
   x.strokeStyle = "rgba(115,110,102,0.55)"; x.lineWidth = 3;
@@ -1452,6 +1532,8 @@ const PATTERNS = [
   { k: "terrazzo", n: "水磨石", size: 120, draw: (x) => drawSpecks(x, "#e8e3db", ["#b5a796", "#8d8984", "#d6ccbf", "#a1978b", "#6e6963", "#c8b6a3"], 1100, 1.5, 6, 9) },
   { k: "cement", n: "灰色磐多魔", size: 240, draw: (x) => drawSpecks(x, "#bcb7b0", ["#c9c4bd", "#aea9a2", "#b5b0a8"], 260, 20, 70, 13, 0.25) },
   { k: "tile", n: "霧灰磚 60×60", size: 120, draw: drawTile },
+  { k: "greymarble", n: "灰大理石磚 60×60", size: 120, draw: (x) => drawStoneTiles(x, "#c4c3bf", "rgba(95,95,92,", 256, 256, 23), gloss: true },
+  { k: "octagon", n: "白大理石八角磚", size: 120, draw: drawOctagon, gloss: true },
 ];
 const PAT = Object.fromEntries(PATTERNS.map((p) => [p.k, p]));
 const patCache = {};
@@ -1486,6 +1568,70 @@ function patMat(k) {
 const paintMat = (k) => mat((PAINT[k] || PAINT.base).hex, { roughness: 0.92 });
 const PARAPET = 110; // 工作陽台女兒牆高度
 // 工作陽台牆面：深灰細長條磚（約 30×7.5cm、半磚錯縫、米色縫），依牆段尺寸重複
+// 淋浴間側牆花磚：灰階幾何圖案小方磚
+function accentTileMat() {
+  if (!matCache.__accent) {
+    const c = document.createElement("canvas");
+    c.width = 128; c.height = 512;
+    const x = c.getContext("2d"), R = rng(51), s = 32;
+    x.fillStyle = "#e4e3df"; x.fillRect(0, 0, 128, 512);
+    for (let ty = 0; ty < 512; ty += s) for (let tx = 0; tx < 128; tx += s) {
+      x.fillStyle = ["#8e8e8b", "#6f6f6c", "#a9a8a4"][Math.floor(R() * 3)];
+      const m = Math.floor(R() * 4), cx = tx + s / 2, cy = ty + s / 2;
+      x.beginPath();
+      if (m === 0) x.arc(cx, cy, s * 0.3, 0, Math.PI * 2);
+      else if (m === 1) { x.moveTo(cx, ty + 3); x.lineTo(tx + s - 3, cy); x.lineTo(cx, ty + s - 3); x.lineTo(tx + 3, cy); }
+      else if (m === 2) { x.rect(tx + 6, ty + 6, s - 12, s - 12); }
+      else { x.rect(cx - 3, ty + 3, 6, s - 6); x.rect(tx + 3, cy - 3, s - 6, 6); }
+      x.fill();
+      x.strokeStyle = "rgba(90,90,88,0.4)"; x.strokeRect(tx, ty, s, s);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 3);
+    matCache.__accent = new THREE.MeshStandardMaterial({ map: t, roughness: 0.4 });
+  }
+  return matCache.__accent;
+}
+// 客浴牆面：淺灰大理石紋壁磚（約 60×30cm 橫貼），依牆段尺寸重複
+function bathWallMat(len, hgt) {
+  const key = `__bwall_${Math.round(len)}_${Math.round(hgt)}`;
+  if (!matCache[key]) {
+    if (!matCache.__bwallCanvas) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 512;
+      drawStoneTiles(c.getContext("2d"), "#d6d5d1", "rgba(150,150,146,", 256, 128, 29);
+      matCache.__bwallCanvas = c;
+    }
+    const t = new THREE.CanvasTexture(matCache.__bwallCanvas);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(len / 120, hgt / 120);
+    matCache[key] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.4 });
+  }
+  return matCache[key];
+}
+// 未選油漆／地板時，依現場照片使用的預設材質
+// 主浴牆面：白色大理石紋壁磚（約 30×60cm 直貼）
+function whiteMarbleWallMat(len, hgt) {
+  const key = `__wmwall_${Math.round(len)}_${Math.round(hgt)}`;
+  if (!matCache[key]) {
+    if (!matCache.__wmwallCanvas) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 512;
+      drawStoneTiles(c.getContext("2d"), "#f3f2ef", "rgba(130,130,128,", 128, 256, 43);
+      matCache.__wmwallCanvas = c;
+    }
+    const t = new THREE.CanvasTexture(matCache.__wmwallCanvas);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(len / 120, hgt / 120);
+    matCache[key] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35 });
+  }
+  return matCache[key];
+}
+const ROOM_WALL_DEFAULT = {
+  工作陽台: (l, hh) => balconyTileMat(l, hh), 客浴: (l, hh) => bathWallMat(l, hh), 主浴: (l, hh) => whiteMarbleWallMat(l, hh),
+};
+const ROOM_FLOOR_DEFAULT = { 客浴: "greymarble", 主浴: "octagon" };
 function balconyTileMat(len, hgt) {
   const key = `__btile_${Math.round(len)}_${Math.round(hgt)}`;
   if (!matCache[key]) {
@@ -1515,7 +1661,7 @@ function buildArch(g, wallH, floorMats, fin) {
   fin = fin || emptyFinish();
   FLOORS.forEach(([x1, y1, x2, y2, t], i) => {
     const w = x2 - x1, d = y2 - y1;
-    const pk = fin.floor[FLOOR_ROOM[i]], pat = pk && pk !== "base" ? PAT[pk] : null;
+    const pk = fin.floor[FLOOR_ROOM[i]] || ROOM_FLOOR_DEFAULT[FLOOR_ROOM[i]], pat = pk && pk !== "base" ? PAT[pk] : null;
     const geo = new THREE.PlaneGeometry(w, d);
     const uv = geo.attributes.uv, sc = pat ? pat.size : t === "w" ? 240 : 120;
     for (let j = 0; j < uv.count; j++) uv.setXY(j, (uv.getX(j) * w) / sc, (uv.getY(j) * d) / sc);
@@ -1553,7 +1699,8 @@ function buildArch(g, wallH, floorMats, fin) {
       [-1, 1].forEach((side, si) => {
         const off = side * (T / 2 + 4), half = c + (side * T) / 4;
         // 陽台內側未選油漆時用現場的深灰條磚
-        const m = rs[si] === "工作陽台" && !fin.wall["工作陽台"] ? balconyTileMat(b - a, hh) : horiz ? sideMat(mid, c + off) : sideMat(c + off, mid);
+        const tex = !fin.wall[rs[si]] && ROOM_WALL_DEFAULT[rs[si]];
+        const m = tex ? tex(b - a, hh) : horiz ? sideMat(mid, c + off) : sideMat(c + off, mid);
         add(new THREE.BoxGeometry(horiz ? b - a : T / 2, hh, horiz ? T / 2 : b - a), m, horiz ? mid : half, horiz ? half : mid, hh);
       });
     }
@@ -2007,7 +2154,9 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       VIEWS.map((v) => h("button", { key: v.n, className: "chip", onClick: () => goView(v) }, v.n)),
       h("button", { className: "chip" + (labels ? " on" : ""), onClick: () => setLabels((v) => !v) }, "標籤"),
       h("button", { className: "chip walkbtn", onClick: startWalk }, "漫遊")),
-    h("div", { className: "hint3" }, `天花板 ${ceil} cm・左鍵／單指旋轉・右鍵或 Shift 拖曳、方向鍵、雙指平移・滾輪縮放`));
+    h("div", { className: "hint3" },
+      h("span", { className: "hint-desk" }, `天花板 ${ceil} cm・左鍵旋轉・右鍵或 Shift 拖曳、方向鍵平移・滾輪縮放`),
+      h("span", { className: "hint-touch" }, "單指旋轉・雙指縮放與平移")));
 }
 
 /* ============ 數字輸入 ============ */
@@ -2358,7 +2507,8 @@ function PhotoSim({ onClose }) {
       h("div", { className: "psstrip" },
         photos.map((p) => h("button", { key: p.id, className: "psthumb" + (p.id === cur ? " on" : ""), onClick: () => setCur(p.id), "aria-label": p.name },
           urls[p.id] ? h("img", { src: urls[p.id], alt: "" }) : null)),
-        h("button", { className: "psadd", onClick: () => fileRef.current.click() }, "＋ 上傳照片")),
+        h("button", { className: "psadd", onClick: () => fileRef.current.click() }, "＋ 上傳"),
+        photo ? h("button", { className: "psadd del" + (delAsk ? " ask" : ""), onClick: delPhoto }, delAsk ? "確定刪除？" : "刪除照片") : null),
       h("input", { ref: fileRef, type: "file", accept: "image/*", multiple: true, hidden: true, onChange: upload }),
       h("button", { className: "x light", onClick: onClose, "aria-label": "關閉" }, "×")),
     h("div", { className: "psstage", ref: stage },
@@ -2386,23 +2536,19 @@ function PhotoSim({ onClose }) {
           h("button", { className: "ic" + (orig ? " newon" : ""), onClick: () => setOrig((v) => !v) }, "原圖")),
         regions.length ? h("div", { className: "finrow scroll" },
           regions.map((r, i) => h("button", { key: r.id, className: "chip" + (r.id === selR ? " on" : ""), onClick: () => setSelR(r.id) },
-            `${REGION_LABEL[r.type]} ${regions.filter((x, j) => x.type === r.type && j <= i).length}`))) : null,
+            `${REGION_LABEL[r.type]} ${regions.filter((x, j) => x.type === r.type && j <= i).length}`)),
+          region ? h("button", { className: "chip delchip", onClick: () => { setRegions((rs) => rs.filter((r) => r.id !== selR)); setSelR(null); } }, `刪除${REGION_LABEL[region.type]}`) : null) : null,
         region ? h(React.Fragment, null,
           region.type === "mask" ? h("p", { className: "mnote" }, "排除區內維持原圖，用來保留擋在牆或地板前面的物件。") : h("div", { className: "finrow scroll swatches" },
             h("button", { className: "sw" + ((region[side] || "none") === "none" ? " on" : ""), onClick: () => setKey("none") }, h("i", { className: "none" }), "原樣"),
             (region.type === "wall" ? PAINTS.filter((p) => p.k !== "base") : PATTERNS.filter((p) => p.k !== "base")).map((p) => h("button", {
               key: p.k, className: "sw" + (region[side] === p.k ? " on" : ""), onClick: () => setKey(p.k),
             }, h("i", { style: region.type === "wall" ? { background: p.hex } : { backgroundImage: `url(${patThumb(p.k)})`, backgroundSize: "cover" } }), p.n))),
-          h("div", { className: "finrow" },
-            region.type === "floor" ? h("label", { className: "nf psrange" }, h("span", null, "花紋密度"),
+          region.type === "floor" ? h("div", { className: "finrow" },
+            h("label", { className: "nf psrange" }, h("span", null, "花紋密度"),
               h("input", { type: "range", min: 1, max: 16, step: 0.5, value: region.scale || 4,
-                onChange: (e) => setRegions((rs) => rs.map((r) => (r.id === selR ? { ...r, scale: Number(e.target.value) } : r))) })) : null,
-            h("span", { className: "spacer" }),
-            h("button", { className: "ic del", onClick: () => { setRegions((rs) => rs.filter((r) => r.id !== selR)); setSelR(null); } }, `刪除這個${REGION_LABEL[region.type]}`))) : null,
-        h("div", { className: "finrow" },
-          h("span", { className: "spacer" }),
-          h("button", { className: "ic del", onClick: delPhoto }, delAsk ? "確定刪除這張照片？" : "刪除照片"))) : null,
-      h("p", { className: "mnote small" }, "照片只存在這台裝置的瀏覽器，不會上傳。換色會保留照片原本的光影，結果僅供搭配參考，實際色差以色卡為準。")));
+                onChange: (e) => setRegions((rs) => rs.map((r) => (r.id === selR ? { ...r, scale: Number(e.target.value) } : r))) }))) : null) : null) : null,
+      h("p", { className: "mnote small psfoot" }, "照片只存在這台裝置的瀏覽器，不會上傳。換色會保留照片原本的光影，結果僅供搭配參考，實際色差以色卡為準。")));
 }
 
 /* ============ 順手高度試算 ============ */
@@ -2620,6 +2766,7 @@ function App() {
   const finJoined = useRef(false);
 
   const [heightUI, setHeightUI] = useState(false);
+  const [addUI, setAddUI] = useState(false);
   const [showOutlets, setShowOutlets] = useState(true);
   const [outletUI, setOutletUI] = useState(false);
   const [confirmOutlets, setConfirmOutlets] = useState(false);
@@ -2968,9 +3115,10 @@ function App() {
         h("button", { className: "tg" + (cutaway ? " on" : ""), onClick: () => setCutaway((v) => !v), title: "把牆面切低，方便俯看" }, "矮牆"),
         h("button", { className: "tg" + (night ? " on" : ""), onClick: () => setNight((v) => !v) }, "夜燈"),
         h("div", { className: "menuwrap" },
-          h("button", { className: "tg" + (menu ? " on" : ""), "aria-expanded": menu, onClick: () => setMenu((v) => !v) }, "檔案"),
+          h("button", { className: "tg" + (menu ? " on" : ""), "aria-expanded": menu, onClick: () => setMenu((v) => !v) }, "設定"),
           menu ? h("div", { className: "backdrop", onClick: () => setMenu(false) }) : null,
           menu ? h("div", { className: "menu" },
+            h("button", { className: "menuhi", onClick: () => { setMenu(false); setAddCat((c) => c || CATS[0]); setAddUI(true); } }, "＋ 新增物件"),
             h("button", { onClick: () => { setMenu(false); setRoomUI(true); } }, roomCode ? `共享房間（${roomCode}）` : "共享房間…"),
             h("button", { onClick: () => { setMenu(false); setSchemeUI(true); } }, `方案管理（${schemes.length}）`),
             h("button", { onClick: openFinish }, "牆面地板搭配（3D）"),
@@ -3110,8 +3258,21 @@ function App() {
 
     photoUI ? h(PhotoSim, { onClose: () => setPhotoUI(false) }) : null,
 
-    h("footer", null,
-      finUI ? finishBar : selItem ? h("div", { className: "edit" },
+    // 新增物件（由「設定」選單開啟）
+    addUI ? h("div", { className: "modalbg", onClick: (e) => { if (e.target === e.currentTarget) setAddUI(false); } },
+      h("div", { className: "modal wide", role: "dialog", "aria-label": "新增物件" },
+        h("div", { className: "mhd" }, h("strong", null, "新增物件"), h("button", { className: "x", onClick: () => setAddUI(false), "aria-label": "關閉" }, "×")),
+        h("p", { className: "mnote" }, "選分類再點品項，物件會放在平面圖中央，再拖到想要的位置；點物件可旋轉、改尺寸或刪除。"),
+        h("div", { className: "cats" },
+          CATS.map((c) => h("button", { key: c, className: "chip" + (addCat === c ? " on" : ""), onClick: () => setAddCat(c) }, c))),
+        h("div", { className: "libgrid" },
+          Object.entries(LIB).filter(([, v]) => v.cat === addCat).map(([k, v]) =>
+            h("button", { key: k, className: "libitem", onClick: () => { add(k); setAddUI(false); if (!wide) setTab("2d"); } },
+              v.name, h("small", null, isOutlet(k) ? `離地 ${v.h}` : `${v.w}×${v.d}`)))))) : null,
+
+    // 下方列只在選取物件或調整搭配時出現，平常把空間留給畫面
+    (finUI || selItem) ? h("footer", null,
+      finUI ? finishBar : h("div", { className: "edit" },
         h("div", { className: "row1" },
           h("input", { className: "nm", value: selItem.name, onChange: (e) => updateItem(sel, { name: e.target.value }) }),
           h("div", { className: "btns" },
@@ -3139,14 +3300,7 @@ function App() {
             h(NumField, { label: "寬", value: selItem.w, onCommit: (n) => updateItem(sel, { w: n }) }),
             h(NumField, { label: "深", value: selItem.d, onCommit: (n) => updateItem(sel, { d: n }) }),
             h(NumField, { label: "高", value: selItem.h, onCommit: (n) => updateItem(sel, { h: n }) }),
-            h("span", { className: "unit" }, "cm・虛線數字為距離，低於 60 顯示紅色")))
-      : h("div", { className: "addbar" },
-        h("span", { className: "lead" }, "拖曳傢俱移動位置，點一下可旋轉或改尺寸。新增："),
-        h("div", { className: "cats" },
-          CATS.map((c) => h("button", { key: c, className: "chip" + (addCat === c ? " on" : ""), onClick: () => setAddCat(addCat === c ? null : c) }, c))),
-        addCat ? h("div", { className: "lib" },
-          Object.entries(LIB).filter(([, v]) => v.cat === addCat).map(([k, v]) =>
-            h("button", { key: k, className: "libitem", onClick: () => add(k) }, v.name, h("small", null, isOutlet(k) ? `離地 ${v.h}` : `${v.w}×${v.d}`)))) : null)));
+            h("span", { className: "unit" }, "cm・虛線數字為距離，低於 60 顯示紅色")))) : null);
 }
 
 window.__C3 = { defaultItems, computeOverlaps, normalizeItems, KEY };
