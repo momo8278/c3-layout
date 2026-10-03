@@ -55,6 +55,24 @@ main.split .pane+.pane{border-left:1px solid #cfc8bf}
 .knob{width:52px;height:52px;border-radius:50%;background:rgba(47,111,120,.85);box-shadow:0 2px 8px rgba(0,0,0,.25);pointer-events:none}
 @media (hover:hover) and (pointer:fine){.joy{display:none}}
 .modal.wide{max-width:640px}
+@media (max-width:440px){.seg button{padding:6px 10px}.tg{padding:6px 9px}.hbtns{gap:4px}}
+.hotlayer{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.hot{position:absolute;left:0;top:0;pointer-events:auto;white-space:nowrap;font-family:inherit;border:0;cursor:pointer;will-change:transform}
+.hot.room{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 12px;border-radius:12px;background:rgba(255,255,255,.88);
+ color:#2f2b28;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:14px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.hot.room small{font-size:11px;color:#2f6f78}
+.hot.door{padding:6px 12px;border-radius:999px;background:rgba(47,111,120,.92);color:#fff;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.hot.door.exit{background:rgba(110,84,64,.95)}
+.hot.dim{pointer-events:none;padding:2px 8px;border-radius:6px;background:#2f6f78;color:#fff;font-size:12px;font-weight:700}
+.panobar{position:absolute;left:8px;right:8px;top:8px;display:flex;gap:6px;align-items:center;overflow-x:auto;padding-bottom:2px;z-index:3}
+.panobar>*{flex:none}
+.panoroom{padding:6px 12px;border-radius:999px;background:rgba(47,43,40,.82);color:#fff;font-weight:700;font-size:14px}
+.panoroom small{font-weight:400;color:#f1dcc0}
+.infocard{position:absolute;left:12px;bottom:40px;width:min(320px,calc(100% - 24px));background:rgba(255,255,255,.95);border-radius:14px;
+ padding:10px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25);z-index:4}
+.infocard dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:4px 0 0;font-size:13px}
+.infocard dt{color:#8d8378}
+.infocard dd{margin:0;color:#2f2b28}
 .libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
 .libgrid .libitem{width:100%}
 .menu button.menuhi{color:#2f6f78;font-weight:700}
@@ -350,9 +368,12 @@ const ROOM_RECTS = [
   ["客浴", 255, 570, 418, 915], ["廚房", 418, 720, 835, 915], ["工作陽台", 835, 720, 1020, 915],
 ];
 function describePos(it) {
-  const r = ROOM_RECTS.find(([, x1, y1, x2, y2]) => it.cx >= x1 - 8 && it.cx <= x2 + 8 && it.cy >= y1 - 8 && it.cy <= y2 + 8);
-  if (!r) return `座標 (${Math.round(it.cx)}, ${Math.round(it.cy)})，離地 ${it.h} cm`;
-  const [n, x1, y1, x2, y2] = r;
+  // 用 FLOORS（精確、不重疊）判斷所在空間；插座貼牆，先找完全包含的地板，再放寬 8cm
+  const inF = (tol) => FLOORS.findIndex(([x1, y1, x2, y2]) => it.cx >= x1 - tol && it.cx <= x2 + tol && it.cy >= y1 - tol && it.cy <= y2 + tol);
+  let fi = inF(0);
+  if (fi < 0) fi = inF(8);
+  if (fi < 0) return `座標 (${Math.round(it.cx)}, ${Math.round(it.cy)})，離地 ${it.h} cm`;
+  const [x1, y1, x2, y2] = FLOORS[fi], n = FLOOR_ROOM[fi];
   // 最近的那面牆，再量到較近的牆角（牆面＝中心線內縮半個牆厚）
   const d = { 北: it.cy - (y1 + T / 2), 南: y2 - T / 2 - it.cy, 西: it.cx - (x1 + T / 2), 東: x2 - T / 2 - it.cx };
   const wall = Object.keys(d).reduce((a, b) => (d[a] <= d[b] ? a : b));
@@ -1924,8 +1945,82 @@ const arFov = (aspect) => {
   return THREE.MathUtils.radToDeg(2 * Math.atan(t));
 };
 
+/* ============ 互動式 3D 環景 ============ */
+// 全部沿用 C3 既有資料：ROOM_RECTS（空間範圍）、ROOMS（名稱與標示尺寸）、DOORS（門的鉸鍊、關閉端、開向）、
+// items（傢俱 JSON）。不另外推測或新增任何牆、門、傢俱。
+// 空間判斷用 FLOORS（每塊地板精確範圍、彼此不重疊）；ROOM_RECTS 只是大致範圍，餐廳與客浴會重疊
+const roomOf = (x, y) => roomAt(x, y);
+// 每個空間由一或多塊地板組成；取面積最大的那塊當尺寸線範圍
+const PANO_ROOMS = [...new Set(FLOOR_ROOM)].map((n) => {
+  const rects = FLOORS.filter((f, i) => FLOOR_ROOM[i] === n).map(([a, b, c, d]) => [a, b, c, d]);
+  return { n, rects, main: rects.reduce((m, r) => ((r[2] - r[0]) * (r[3] - r[1]) > (m[2] - m[0]) * (m[3] - m[1]) ? r : m)) };
+});
+// 每個空間的觀景點：只在該空間的地板範圍內找，離牆與傢俱夠遠、又接近中心的位置（人站得進去的地方）
+function panoSpot(room, items) {
+  const bs = [...WALL_BOXES, ...items.filter((i) => !noCollide(i.type)).map(boxOf)];
+  const [x1, y1, x2, y2] = room.main, cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+  let best = null, bestScore = -Infinity;
+  for (const need of [40, 25]) {
+    for (const [rx1, ry1, rx2, ry2] of room.rects) for (let x = rx1 + 20; x <= rx2 - 20; x += 10) for (let y = ry1 + 20; y <= ry2 - 20; y += 10) {
+      let clr = Infinity;
+      for (const b of bs) { const dx = Math.max(b.x1 - x, 0, x - b.x2), dy = Math.max(b.y1 - y, 0, y - b.y2); if ((clr = Math.min(clr, Math.hypot(dx, dy))) < need) break; }
+      if (clr < need) continue;
+      const score = Math.min(clr, 60) - Math.hypot(x - cx, y - cy) * 0.25;
+      if (score > bestScore) { bestScore = score; best = { x, y }; }
+    }
+    if (best) break;
+  }
+  return best || { x: cx, y: cy };
+}
+// 觀景方向：從觀景點往 16 個方向看，取「在同一空間內」視線最深的方向（只被牆和 120cm 以上的物件擋住），
+// 這樣進到房間時看到的是房間本身，而不是門外
+function panoYaw(x, y, items, name) {
+  const bs = [...WALL_BOXES, ...items.filter((i) => !noCollide(i.type) && i.h > 120).map(boxOf)];
+  let bestYaw = 0, bestD = -1;
+  for (let k = 0; k < 16; k++) {
+    const yaw = (k / 16) * Math.PI * 2, fx = Math.sin(yaw), fy = -Math.cos(yaw);
+    let d = 20;
+    for (; d < 1200; d += 10) {
+      const px = x + fx * d, py = y + fy * d;
+      if (roomAt(px, py) !== name || bs.some((b) => px > b.x1 && px < b.x2 && py > b.y1 && py < b.y2)) break;
+    }
+    if (d > bestD) { bestD = d; bestYaw = yaw; }
+  }
+  return bestYaw;
+}
+// 每扇門兩側各是哪個空間（沿門的法線往兩邊各取 30cm 判斷）；大門的一側是戶外
+const PANO_DOORS = DOORS.map((dr, i) => {
+  const mx = (dr.h[0] + dr.e[0]) / 2, my = (dr.h[1] + dr.e[1]) / 2;
+  const vx = dr.e[0] - dr.h[0], vy = dr.e[1] - dr.h[1], L = Math.hypot(vx, vy), nx = -vy / L, ny = vx / L;
+  return { i, x: mx, y: my, main: !!dr.main, rooms: [roomOf(mx + nx * 30, my + ny * 30), roomOf(mx - nx * 30, my - ny * 30)] };
+});
+// 傢俱材質風格：替換木作與布料的顏色（只換外觀，尺寸位置不變）
+const PANO_VARIANTS = [
+  { n: "淺橡木", map: {} },
+  { n: "白橡木", map: { [C.oak]: "#dcc6a2", [C.oakDark]: "#c4aa83", "#d8bd96": "#ead8bb", "#cdb08a": "#e0c9a6", "#b48b62": "#c9ad86", "#a98d68": "#b89c76",
+    [C.sofa]: "#ece7df", [C.linen]: "#f3efe8", "#c8b9a5": "#e0d9cf", "#cfc2b0": "#e6e0d6" } },
+  { n: "胡桃木", map: { [C.oak]: "#7b5638", [C.oakDark]: "#5e412b", "#d8bd96": "#8a6445", "#cdb08a": "#7e5b3e", "#b48b62": "#5e412b", "#a98d68": "#4e3624",
+    [C.sofa]: "#a49e95", [C.linen]: "#c9c3ba", "#c8b9a5": "#8e8880", "#cfc2b0": "#a39d95" } },
+  { n: "灰調現代", map: { [C.oak]: "#a8998a", [C.oakDark]: "#7d7166", "#d8bd96": "#b8ab9d", "#cdb08a": "#ab9e90", "#b48b62": "#857869", "#a98d68": "#7a6e62",
+    [C.sofa]: "#6f7276", [C.linen]: "#9a9da1", "#c8b9a5": "#5c5f63", "#cfc2b0": "#76797d", [C.cream]: "#e4e2df" } },
+];
+function applyVariant(root, idx) {
+  const map = PANO_VARIANTS[idx].map, seen = new Set();
+  root.traverse((o) => {
+    if (!o.material || o.isSprite) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+      const hx = m.userData.hex;
+      if (!hx || seen.has(m) || !m.color) return;
+      seen.add(m);
+      const col = new THREE.Color(map[hx] || hx);
+      if (m.userData.photoOn) { if (m.userData.photoBase) m.userData.photoBase.color = col.clone(); col.convertSRGBToLinear(); }
+      m.color.copy(col);
+    });
+  });
+}
+
 // active=false 時（手機切到平面圖）保留 renderer 只暫停繪製，避免反覆建立 WebGL context
-function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB, compare }) {
+function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB, compare, pano, onPanoExit, onToggleNight }) {
   const wrap = useRef(null);
   const mini = useRef(null);
   const knob = useRef(null);
@@ -1941,9 +2036,20 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
   S.current.ghost = ghost;
   const [photo, setPhoto] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  // 環景狀態
+  const [panoRoom, setPanoRoom] = useState("客廳");
+  const [panoLabels, setPanoLabels] = useState(true);
+  const [panoDims, setPanoDims] = useState(false);
+  const [lightsOn, setLightsOn] = useState(true);
+  const [variant, setVariant] = useState(0);
+  const [info, setInfo] = useState(null);
+  const [gyro, setGyro] = useState(false);
+  const hot = useRef({});
+  S.current.hot = hot.current;
+  S.current.onPanoInfo = setInfo;
   S.current.compare = compare && !walk;
   S.current.split = split;
-  const wallH = cutaway && !walk ? 110 : ceil;
+  const wallH = cutaway && !walk && !pano ? 110 : ceil;
 
   useEffect(() => {
     const el = wrap.current, s = S.current;
@@ -2018,7 +2124,11 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       dir.intensity = n ? (p ? 0.02 : 0.04) : p ? 1.35 : 0.65;
       dir.color.set(p ? 0xffe9cc : 0xfff1dc);
       dir.position.copy(p ? new THREE.Vector3(260, 420, -820) : new THREE.Vector3(-300, 900, -500));
-      lamps.visible = n;
+      // 室內燈光開關（環景）：天花板燈、燈條發光與光暈、櫃內暖光一起控制
+      const on = s.lightsOn !== false;
+      lamps.visible = s.panoOn ? on && (n || p) : n;
+      ["__glow", "__wash", "__washTop", "__scallop"].forEach((k) => { if (matCache[k]) matCache[k].visible = on; });
+      furn.traverse((o) => { if (o.isPointLight) o.visible = on; });
       if (s.areas) s.areas.visible = p && !n;
       scene.environment = p ? s.envTex : null;
       const size = p ? (IS_TOUCH ? 2048 : 4096) : 2048;
@@ -2101,6 +2211,15 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
     ro.observe(el);
     const stepWalk = (dt) => {
       const w = s.walkSt, K = s.keys;
+      if (s.panoMove) {
+        // 環景：點房間或門後，平滑移動到該空間的觀景點（不做碰撞，路線只是過場）
+        const m = s.panoMove;
+        m.t = Math.min(1, m.t + dt / 0.9);
+        const e = m.t < 0.5 ? 2 * m.t * m.t : 1 - Math.pow(-2 * m.t + 2, 2) / 2;
+        w.x = m.from.x + (m.to.x - m.from.x) * e; w.y = m.from.y + (m.to.y - m.from.y) * e;
+        if (m.yaw != null) w.yaw = m.yaw0 + angDiff(m.yaw0, m.yaw) * e;
+        if (m.t >= 1) s.panoMove = null;
+      }
       let f = 0, st = 0;
       if (K.KeyW || K.ArrowUp) f += 1;
       if (K.KeyS || K.ArrowDown) f -= 1;
@@ -2125,6 +2244,7 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       if (s.mini) drawMinimap(s.mini, s.items || [], w);
     };
     let raf, lastT = performance.now();
+    const hpV = new THREE.Vector3();
     const loop = (now = performance.now()) => {
       const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
@@ -2156,6 +2276,18 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
           if (s.bokeh) s.bokeh.enabled = !!s.walkOn; // 景深只在人眼視角（漫遊）時開
           s.composer.render();
         } else renderer.render(scene, camera);
+        if (s.panoOn) {
+          // 環景熱點：3D 座標投影到螢幕，用 transform 直接移動（不經 React 重繪）
+          const W = el.clientWidth, H = el.clientHeight;
+          Object.values(s.hot).forEach((hp) => {
+            hpV.set(hp.p[0], hp.p[1], hp.p[2]);
+            const dist = hpV.distanceTo(camera.position);
+            hpV.project(camera);
+            const on = hpV.z < 1 && hpV.z > -1 && Math.abs(hpV.x) < 1.1 && Math.abs(hpV.y) < 1.1 && dist > 40;
+            hp.el.style.display = on ? "" : "none";
+            if (on) hp.el.style.transform = `translate(${((hpV.x + 1) / 2) * W}px,${((1 - hpV.y) / 2) * H}px) translate(-50%,-50%)`;
+          });
+        }
       }
       raf = requestAnimationFrame(loop);
     };
@@ -2216,7 +2348,7 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
           s.walkSt.pitch = Math.min(0.7, Math.max(-0.7, s.walkSt.pitch + (p.y - last.y) * 0.004));
         }
         last = { n: 1, x: p.x, y: p.y };
-        down = null;
+        if (down && Math.hypot(p.x - down.x, p.y - down.y) > 6) down = null; // 小幅抖動仍算點擊
         return;
       }
       if (pts.length === 1) {
@@ -2244,7 +2376,7 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       s.updateCam();
     };
     const pu = (e) => {
-      if (!s.walkOn && !s.panDrag && down && ptrs.size === 1 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
+      if ((!s.walkOn || s.panoOn) && !s.panDrag && down && ptrs.size === 1 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
         const r = cv.getBoundingClientRect();
         const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
         const rc = new THREE.Raycaster();
@@ -2252,7 +2384,8 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
         const hit = rc.intersectObjects(furn.children, true)[0];
         let id = null;
         if (hit) { let o = hit.object; while (o && !o.userData.itemId) o = o.parent; id = o ? o.userData.itemId : null; }
-        s.onSelect && s.onSelect(id);
+        if (s.panoOn) s.onPanoInfo && s.onPanoInfo(id); // 環景：點傢俱顯示資訊卡
+        else s.onSelect && s.onSelect(id);
       }
       ptrs.delete(e.pointerId);
       last = null; down = null;
@@ -2314,6 +2447,8 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       s.furn.add(g);
     });
     if (s.photo) syncPhotoMaterials(s.scene, true);
+    if (s.variant) applyVariant(s.scene, s.variant);
+    if (s.lightsOn === false) s.applyLights();
   }, [items, sel, wallH]);
 
   useEffect(() => {
@@ -2322,15 +2457,100 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
     s.applyLights();
   }, [night]);
 
-  const togglePhoto = async () => {
+  const setPhotoMode = async (on) => {
     const s = S.current;
-    if (photoBusy) return;
+    if (!!s.photo === on) return;
     setPhotoBusy(true);
-    await s.setPhoto(!photo);
-    if (s.walkOn) { s.userFov = false; s.camera.fov = !photo ? arFov(s.camera.aspect) : 70; s.camera.updateProjectionMatrix(); }
-    setPhoto(!photo);
+    await s.setPhoto(on);
+    if (s.walkOn) { s.userFov = false; s.camera.fov = on ? arFov(s.camera.aspect) : s.panoOn ? arFov(s.camera.aspect) : 70; s.camera.updateProjectionMatrix(); }
+    setPhoto(on);
     setPhotoBusy(false);
   };
+  const togglePhoto = () => { if (!photoBusy) setPhotoMode(!photo); };
+
+  /* ---- 環景 ---- */
+  // 各空間的觀景點與標示尺寸，全部由 ROOM_RECTS／ROOMS／傢俱座標算出
+  const panoSpots = useMemo(() => (!pano ? [] : PANO_ROOMS.map((room) => {
+    const r = ROOMS.find((q) => q.n === room.n), spot = panoSpot(room, items);
+    return { n: room.n, rect: room.main, spot, yaw: panoYaw(spot.x, spot.y, items, room.n), d: r ? r.d : "", a: r && r.ar ? (r.ar[0] * r.ar[1]) / 1e4 : 0 };
+  })), [items, pano]);
+  const spotOf = (n) => panoSpots.find((p) => p.n === n);
+  const goRoom = (n) => {
+    const s = S.current, sp = spotOf(n);
+    if (!sp || !s.walkSt) return;
+    const w = s.walkSt;
+    s.panoMove = { from: { x: w.x, y: w.y }, to: sp.spot, t: 0, yaw0: w.yaw, yaw: sp.yaw }; // 到達時面向視野最深的方向
+    setPanoRoom(n); setInfo(null);
+  };
+  const autoPhoto = useRef(false);
+  const gyroRef = useRef(null);
+  const stopGyro = () => {
+    if (gyroRef.current) { window.removeEventListener("deviceorientation", gyroRef.current); gyroRef.current = null; }
+    setGyro(false);
+  };
+  useEffect(() => {
+    const s = S.current;
+    if (pano) {
+      if (walk) setWalk(false);
+      const lv = spotOf("客廳");
+      s.walkSt = { x: lv.spot.x, y: lv.spot.y, yaw: lv.yaw, pitch: -0.04 }; // 進入時站在客廳觀景點、面向視野最深處
+      s.walkOn = true; s.panoOn = true; s.anim = null; s.keys = {}; s.joy = null; s.userFov = false; s.panoMove = null;
+      setPanoRoom("客廳"); setInfo(null);
+      (async () => {
+        if (!s.photo) { autoPhoto.current = true; await setPhotoMode(true); }
+        s.camera.fov = arFov(s.camera.aspect); s.camera.updateProjectionMatrix();
+        s.applyLights();
+      })();
+    } else if (s.panoOn) {
+      s.panoOn = false; s.walkOn = false; s.panoMove = null;
+      stopGyro();
+      s.camera.fov = 40; s.camera.updateProjectionMatrix(); s.updateCam();
+      if (autoPhoto.current) { autoPhoto.current = false; setPhotoMode(false); }
+      s.applyLights();
+    }
+  }, [pano]);
+  useEffect(() => { const s = S.current; s.lightsOn = lightsOn; s.applyLights(); }, [lightsOn]);
+  useEffect(() => { const s = S.current; s.variant = variant; applyVariant(s.scene, variant); }, [variant]);
+  // 尺寸：目前空間的牆面內緣畫一圈尺寸線（數字由 ROOM_RECTS 扣半個牆厚算出）
+  useEffect(() => {
+    const s = S.current;
+    if (s.dimGroup) { s.scene.remove(s.dimGroup); clearGroup(s.dimGroup); s.dimGroup = null; }
+    const cur = spotOf(panoRoom);
+    if (!pano || !panoDims || !cur) return;
+    const [x1, y1, x2, y2] = cur.rect, a = T / 2;
+    const pts = [[x1 + a, y1 + a], [x2 - a, y1 + a], [x2 - a, y2 - a], [x1 + a, y2 - a]].map(([x, y]) => new THREE.Vector3(PX(x), 1.5, PZ(y)));
+    const g = new THREE.Group();
+    g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), selLineMat()));
+    s.dimGroup = g; s.scene.add(g);
+  }, [pano, panoDims, panoRoom, panoSpots]);
+  const toggleGyro = async () => {
+    if (gyro) { stopGyro(); return; }
+    try {
+      // iOS Safari 13+ 需要在點擊時請求權限
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== "granted") { setInfo("__gyrodenied"); return; }
+      }
+    } catch (e) { setInfo("__gyrodenied"); return; }
+    let lastA = null;
+    const hd = (e) => {
+      const w = S.current.walkSt;
+      if (!w || e.alpha == null) return;
+      // 左右轉身：依指南針角度的變化量旋轉（可和手指拖曳疊加）；直拿時上下看依前後傾角
+      if (lastA != null) { let d = e.alpha - lastA; if (d > 180) d -= 360; if (d < -180) d += 360; w.yaw -= THREE.MathUtils.degToRad(d); }
+      lastA = e.alpha;
+      const ang = (window.screen.orientation && window.screen.orientation.angle) || window.orientation || 0;
+      if (Math.abs(ang) !== 90 && e.beta != null) w.pitch = Math.min(0.7, Math.max(-0.7, THREE.MathUtils.degToRad(e.beta - 90)));
+    };
+    window.addEventListener("deviceorientation", hd);
+    gyroRef.current = hd;
+    setGyro(true);
+  };
+  useEffect(() => () => stopGyro(), []);
+  // 熱點：React 只負責建立元素，位置在動畫迴圈裡每格更新
+  const hotRef = (key, p) => (el) => { if (el) hot.current[key] = { el, p }; else delete hot.current[key]; };
+  const FACE = ["南", "西", "北", "東"];
+  const dirName = (vx, vy) => (Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? "東" : "西") : vy > 0 ? "南" : "北");
 
   const goFocus = (f) => {
     setFocus(f.n);
@@ -2372,6 +2592,67 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
     if (knob.current) knob.current.style.transform = "";
   };
 
+  if (pano) {
+    const cur = spotOf(panoRoom);
+    const it = info && !info.startsWith("__") ? items.find((i) => i.id === info) : null;
+    const md = DOORS.find((d) => d.main), mdv = md ? [md.e[0] - md.h[0], md.e[1] - md.h[1]] : [0, 0];
+    let card = null;
+    if (it) {
+      const L = LIB[it.type];
+      card = [it.name, [
+        ["類型", L ? `${L.cat}・${L.name}` : it.type],
+        isOutlet(it.type) ? ["離地高度", `${it.h} cm`] : ["尺寸", `寬 ${it.w} × 深 ${it.d} × 高 ${it.h} cm`],
+        ["所在空間", roomOf(it.cx, it.cy) || "—"],
+        ["正面朝向", FACE[((it.rot % 360) + 360) % 360 / 90] || "—"],
+        ["材質風格", PANO_VARIANTS[variant].n],
+      ]];
+    } else if (info === "__maindoor" && md) {
+      // 大門資訊完全取自 DOORS 資料（鉸鍊點、關閉端、開啟方向）；哪一側是戶外由空間範圍判斷
+      const mx = (md.h[0] + md.e[0]) / 2, my = (md.h[1] + md.e[1]) / 2, ml = Math.hypot(mdv[0], mdv[1]);
+      const nx = -mdv[1] / ml, ny = mdv[0] / ml, out = roomOf(mx + nx * 30, my + ny * 30) ? -1 : 1;
+      card = ["大門", [
+        ["位置", `${roomOf(mx - nx * 30 * out, my - ny * 30 * out) || "—"}・${dirName(nx * out, ny * out)}側牆`],
+        ["門寬", `${Math.round(Math.hypot(mdv[0], mdv[1]))} cm`],
+        ["鉸鍊", `${dirName(md.h[0] - md.e[0], md.h[1] - md.e[1])}側`],
+        ["開啟方向", `往室內、往${dirName(-mdv[1] * md.s, mdv[0] * md.s)}開`],
+      ]];
+    } else if (info === "__gyrodenied") {
+      card = ["陀螺儀", [["狀態", "未取得權限。iPhone 請在跳出的詢問中按「允許」；若沒有跳出，請到「設定 › Safari › 動作與方向」開啟後重新整理。"]]];
+    }
+    const [rx1, ry1, rx2, ry2] = cur ? cur.rect : [0, 0, 0, 0], ia = T / 2;
+    return h("div", { className: "v3 pano" },
+      h("div", { ref: wrap, className: "v3canvas" }),
+      h("div", { className: "hotlayer" },
+        panoLabels ? panoSpots.filter((p) => p.n !== panoRoom).map((p) =>
+          h("button", { key: "r" + p.n, ref: hotRef("r" + p.n, [PX(p.spot.x), 125, PZ(p.spot.y)]), className: "hot room", onClick: () => goRoom(p.n) },
+            h("b", null, p.n), panoDims && (p.d || p.a) ? h("small", null, [p.d, p.a ? `${p.a.toFixed(1)} m²` : ""].filter(Boolean).join("・")) : null)) : null,
+        PANO_DOORS.filter((d) => d.rooms.includes(panoRoom)).map((d) => {
+          const other = d.rooms[0] === panoRoom ? d.rooms[1] : d.rooms[0];
+          return h("button", { key: "d" + d.i, ref: hotRef("d" + d.i, [PX(d.x), 100, PZ(d.y)]), className: "hot door" + (other ? "" : " exit"),
+            onClick: () => (other ? goRoom(other) : setInfo("__maindoor")) }, other ? `門 → ${other}` : "大門");
+        }),
+        panoDims && cur ? [
+          ["dw", (rx1 + rx2) / 2, ry1 + ia, `${Math.round(rx2 - rx1 - T)} cm`],
+          ["dd", rx1 + ia, (ry1 + ry2) / 2, `${Math.round(ry2 - ry1 - T)} cm`],
+        ].map(([k, x, y, t]) => h("span", { key: k + panoRoom, ref: hotRef(k, [PX(x), 4, PZ(y)]), className: "hot dim" }, t)) : null),
+      h("div", { className: "panobar" },
+        h("button", { className: "chip on", onClick: onPanoExit }, "結束環景"),
+        h("span", { className: "panoroom" }, panoRoom, cur && panoDims && cur.d ? h("small", null, ` ${cur.d}${cur.a ? `・${cur.a.toFixed(1)} m²・${(cur.a * 0.3025).toFixed(1)} 坪` : ""}`) : null),
+        h("button", { className: "chip" + (panoLabels ? " on" : ""), onClick: () => setPanoLabels((v) => !v) }, "名稱"),
+        h("button", { className: "chip" + (panoDims ? " on" : ""), onClick: () => setPanoDims((v) => !v) }, "尺寸"),
+        h("button", { className: "chip", onClick: onToggleNight }, night ? "夜晚" : "白天"),
+        h("button", { className: "chip" + (lightsOn ? " on" : ""), onClick: () => setLightsOn((v) => !v) }, lightsOn ? "燈光 開" : "燈光 關"),
+        h("button", { className: "chip", onClick: () => setVariant((v) => (v + 1) % PANO_VARIANTS.length) }, `材質：${PANO_VARIANTS[variant].n}`),
+        IS_TOUCH && typeof DeviceOrientationEvent !== "undefined" ? h("button", { className: "chip" + (gyro ? " on" : ""), onClick: toggleGyro }, "陀螺儀") : null,
+        h("button", { className: "chip" + (photo ? " on" : ""), onClick: togglePhoto, disabled: photoBusy }, photoBusy ? "載入中…" : "擬真"),
+        h("button", { className: "chip", onClick: () => S.current.capture() }, "拍照")),
+      card ? h("div", { className: "infocard" },
+        h("div", { className: "mhd" }, h("strong", null, card[0]), h("button", { className: "x", onClick: () => setInfo(null), "aria-label": "關閉" }, "×")),
+        h("dl", null, card[1].map(([k, v]) => h(React.Fragment, { key: k }, h("dt", null, k), h("dd", null, v))))) : null,
+      h("div", { className: "hint3" },
+        h("span", { className: "hint-desk" }, "拖曳環視・滾輪縮放・點房間名稱或門移動・點傢俱看資訊・WASD 走動"),
+        h("span", { className: "hint-touch" }, "拖曳環視・雙指縮放・點房間或門移動・點傢俱看資訊")));
+  }
   if (walk) {
     return h("div", { className: "v3" },
       h("div", { ref: wrap, className: "v3canvas" }),
@@ -3354,7 +3635,12 @@ function App() {
     rd.readAsText(f);
   };
 
-  const show3d = wide || tab === "3d";
+  // 版面：平面圖（寬螢幕時左右並排 2D＋3D）／3D（只看 3D）／環景（全幅互動環景）
+  const pano = tab === "pano";
+  const show2d = tab === "2d";
+  const show3d = wide || tab !== "2d";
+  const prevTab = useRef("2d");
+  const enterPano = () => { if (!pano) { prevTab.current = tab; setTab("pano"); setSel(null); setFinUI(false); setCompare(false); setMeasure(false); } };
   const zoomBy = (k) => setVb((v) => {
     const nw = Math.min(2400, Math.max(180, v.w * k)), nh = (nw * v.h) / v.w;
     return { x: v.x + (v.w - nw) / 2, y: v.y + (v.h - nh) / 2, w: nw, h: nh };
@@ -3368,9 +3654,10 @@ function App() {
           h("i", null), roomCode) : null,
         h("span", { className: "status" }, status)),
       h("div", { className: "hbtns" },
-        !wide ? h("div", { className: "seg" },
+        h("div", { className: "seg" },
           h("button", { className: tab === "2d" ? "on" : "", onClick: () => setTab("2d") }, "平面圖"),
-          h("button", { className: tab === "3d" ? "on" : "", onClick: () => setTab("3d") }, "3D")) : null,
+          h("button", { className: tab === "3d" ? "on" : "", onClick: () => setTab("3d") }, "3D"),
+          h("button", { className: pano ? "on" : "", onClick: enterPano }, "環景")),
         h("button", { className: "tg" + (cutaway ? " on" : ""), onClick: () => setCutaway((v) => !v), title: "把牆面切低，方便俯看" }, "矮牆"),
         h("button", { className: "tg" + (night ? " on" : ""), onClick: () => setNight((v) => !v) }, "夜燈"),
         h("div", { className: "menuwrap" },
@@ -3393,8 +3680,8 @@ function App() {
             h("button", { className: confirmReset ? "warn" : "", onClick: reset }, confirmReset ? "確定還原預設？" : "還原預設")) : null),
         h("input", { ref: fileRef, type: "file", accept: ".json,application/json", hidden: true, onChange: onFile }))),
 
-    h("main", { className: wide ? "split" : "" },
-      (wide || tab === "2d") ? h("section", { className: "pane" },
+    h("main", { className: wide && show2d ? "split" : "" },
+      show2d ? h("section", { className: "pane" },
         h(Plan2D, { items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, measure, measures, pending, onMeasureTap, showOutlets, blockedOutlets }),
         h("div", { className: "zoom" },
           h("button", { onClick: () => setShowOutlets((v) => !v), className: "fit" + (showOutlets ? " on" : ""), "aria-pressed": showOutlets }, "插座"),
@@ -3412,7 +3699,8 @@ function App() {
             h("button", { onClick: toggleMeasure }, "完成")) : null)) : null,
       h("section", { className: "pane dark", style: show3d ? undefined : { display: "none" } },
         h(View3D, { items, sel, onSelect: setSel, night, cutaway, active: show3d, ceil,
-          fin: compare && finUI ? fin.A : fin[finUI ? finSide : "A"], finB: fin.B, compare: compare && finUI }))),
+          fin: compare && finUI ? fin.A : fin[finUI ? finSide : "A"], finB: fin.B, compare: compare && finUI,
+          pano, onPanoExit: () => setTab(prevTab.current === "pano" ? "2d" : prevTab.current), onToggleNight: () => setNight((v) => !v) }))),
 
     roomUI ? h("div", { className: "modalbg", onClick: (e) => { if (e.target === e.currentTarget) setRoomUI(false); } },
       h("div", { className: "modal", role: "dialog", "aria-label": "共享房間" },
@@ -3530,7 +3818,7 @@ function App() {
               v.name, h("small", null, isOutlet(k) ? `離地 ${v.h}` : `${v.w}×${v.d}`)))))) : null,
 
     // 下方列只在選取物件或調整搭配時出現，平常把空間留給畫面
-    (finUI || selItem) ? h("footer", null,
+    !pano && (finUI || selItem) ? h("footer", null,
       finUI ? finishBar : h("div", { className: "edit" },
         h("div", { className: "row1" },
           h("input", { className: "nm", value: selItem.name, onChange: (e) => updateItem(sel, { name: e.target.value }) }),
