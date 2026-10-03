@@ -900,15 +900,24 @@ const PZ = (y) => y - 457;
 const matCache = {};
 function mat(color, opts = {}) {
   const k = color + JSON.stringify(opts);
-  if (!matCache[k]) matCache[k] = new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0, ...opts });
+  if (!matCache[k]) {
+    matCache[k] = new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0, ...opts });
+    matCache[k].userData.hex = String(color).toLowerCase(); // 擬真模式依顏色判斷材質種類
+  }
   return matCache[k];
 }
 const glowMat = () => {
-  if (!matCache.__glow) matCache.__glow = new THREE.MeshBasicMaterial({ color: C.glow });
+  if (!matCache.__glow) {
+    matCache.__glow = new THREE.MeshBasicMaterial({ color: C.glow });
+    matCache.__glow.userData.kind = "glow";
+  }
   return matCache.__glow;
 };
 const glassMat = () => {
-  if (!matCache.__glass) matCache.__glass = new THREE.MeshStandardMaterial({ color: "#dff0f2", transparent: true, opacity: 0.22, roughness: 0.1 });
+  if (!matCache.__glass) {
+    matCache.__glass = new THREE.MeshStandardMaterial({ color: "#dff0f2", transparent: true, opacity: 0.22, roughness: 0.1 });
+    matCache.__glass.userData.kind = "glass";
+  }
   return matCache.__glass;
 };
 // 燈條打在牆上的暖光暈：預設上淡下濃（燈在下方往上打）；fromTop＝上濃下淡（燈在上方往下打）
@@ -1382,6 +1391,7 @@ function makeTextures(renderer) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     out[k] = new THREE.MeshStandardMaterial({ map: t, roughness: 0.85 });
+    out[k].userData.kind = k === "w" ? "floorWood" : "floorTile";
   });
   return out;
 }
@@ -1562,6 +1572,7 @@ function patMat(k) {
     const t = new THREE.CanvasTexture(patCanvas(k));
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     matCache[key] = new THREE.MeshStandardMaterial({ map: t, roughness: PAT[k].gloss ? 0.35 : 0.85 });
+    matCache[key].userData.kind = PAT[k].gloss ? "floorTile" : "floorWood";
   }
   return matCache[key];
 }
@@ -1784,6 +1795,135 @@ const VIEWS = [
 ];
 const angDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
+/* ============ 擬真模式（AR 實景擬真）============ */
+// 只改渲染方式（色彩管線、環境反射、材質、光線、後製），不碰任何格局、門窗與傢俱資料。
+// 後製模組用 three r128 官方 examples/js，進入擬真模式時才載入
+const FX_BASE = "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/";
+const FX_SCRIPTS = ["shaders/CopyShader.js", "postprocessing/EffectComposer.js", "postprocessing/RenderPass.js", "postprocessing/ShaderPass.js",
+  "postprocessing/MaskPass.js", "math/SimplexNoise.js", "shaders/SSAOShader.js", "postprocessing/SSAOPass.js",
+  "shaders/LuminosityHighPassShader.js", "postprocessing/UnrealBloomPass.js", "shaders/BokehShader.js", "postprocessing/BokehPass.js",
+  "shaders/GammaCorrectionShader.js", "shaders/FXAAShader.js", "lights/RectAreaLightUniformsLib.js"];
+let fxPromise = null;
+const loadFx = () => fxPromise || (fxPromise = FX_SCRIPTS.reduce((p, f) => p.then(() => new Promise((res, rej) => {
+  const el = document.createElement("script");
+  el.src = FX_BASE + f; el.onload = res; el.onerror = () => rej(new Error(f));
+  document.head.appendChild(el);
+})), Promise.resolve()).then(() => true, () => false));
+const IS_TOUCH = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+
+// 室內環境反射：米灰色房間＋窗面天光＋天花板燈，經 PMREM 轉成反射貼圖
+function buildEnvTexture(renderer) {
+  const env = new THREE.Scene();
+  const room = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 10), new THREE.MeshBasicMaterial({ color: 0x6f6a63, side: THREE.BackSide }));
+  room.position.y = 2;
+  env.add(room);
+  const panel = (w, hh, pos, rot, col, k) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, hh), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), side: THREE.DoubleSide }));
+    m.position.set(...pos); m.rotation.set(...rot);
+    env.add(m);
+  };
+  panel(4.5, 2.4, [0, 2.4, -4.95], [0, 0, 0], 0xeaf1ff, 3); // 北側窗
+  panel(3, 2.4, [4.95, 2.4, 0], [0, -Math.PI / 2, 0], 0xeaf1ff, 2.4); // 東側窗
+  panel(2, 2, [0, 4.95, 0], [Math.PI / 2, 0, 0], 0xfff1dc, 1.6); // 天花板燈
+  panel(10, 10, [0, -0.95, 0], [-Math.PI / 2, 0, 0], 0x6e5a44, 1); // 木地板反光
+  const pm = new THREE.PMREMGenerator(renderer);
+  const tex = pm.fromScene(env, 0.04).texture;
+  pm.dispose();
+  return tex;
+}
+// 木紋（灰階，乘上原本的木色）與布料凹凸紋理
+const fxTex = {};
+function grainTexture() {
+  if (!fxTex.grain) {
+    const c = document.createElement("canvas");
+    c.width = 256; c.height = 512;
+    const x = c.getContext("2d"), R = rng(61);
+    x.fillStyle = "#fff"; x.fillRect(0, 0, 256, 512);
+    for (let i = 0; i < 70; i++) {
+      const px = R() * 256, a = 0.04 + R() * 0.12;
+      x.strokeStyle = `rgba(80,50,25,${a})`; x.lineWidth = 0.5 + R() * 2.5;
+      [-256, 0, 256].forEach((ox) => { x.beginPath(); x.moveTo(px + ox, 0); x.bezierCurveTo(px + ox + 8 - R() * 16, 170, px + ox + 8 - R() * 16, 340, px + ox, 512); x.stroke(); });
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.encoding = THREE.sRGBEncoding;
+    fxTex.grain = t;
+  }
+  return fxTex.grain;
+}
+function fabricTexture() {
+  if (!fxTex.fabric) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const x = c.getContext("2d"), R = rng(67), img = x.createImageData(128, 128);
+    for (let i = 0; i < 128 * 128; i++) {
+      const v = 128 + (R() - 0.5) * 70 + ((i % 128) % 4 < 2 ? 12 : -12) + (Math.floor(i / 128) % 4 < 2 ? 10 : -10);
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    x.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(6, 6);
+    fxTex.fabric = t;
+  }
+  return fxTex.fabric;
+}
+// 依材質種類設定攝影級的粗糙度／金屬度／紋理
+const WOOD_HEX = new Set([C.oak, C.oakDark, "#d8bd96", "#cdb08a", "#b48b62", "#a98d68", "#5a4635", "#6d5440"]);
+const FABRIC_HEX = new Set([C.sofa, C.linen, "#c8b9a5", C.sage, "#cfc2b0", "#fbfaf7"]);
+const METAL_HEX = new Set(["#c9cdd0", "#dfe2e4", "#9a9a98", "#8e9599", "#9aa0a3", "#bfb4a4", "#d9d4cc"]);
+const CERAMIC_HEX = new Set([C.white, "#fbfbfa", "#e1e1df", "#c9ccce", "#f0e6e4", "#cfe2e6"]);
+const LACQUER_HEX = new Set([C.cream, "#e3dccf", "#ece6dc", "#e9e2d6", "#e6ddcf", "#efe7da", "#f2eee8", "#e9e2d6"]);
+function tunePhoto(m) {
+  const k = m.userData.kind, hx = m.userData.hex;
+  if (k === "glow") { m.color.multiplyScalar(4); return; } // 燈條提高亮度，讓光暈（bloom）出現
+  if (k === "glass") { m.roughness = 0.02; m.metalness = 0; m.envMapIntensity = 2.2; m.opacity = 0.18; return; }
+  if (k === "floorWood") { m.roughness = 0.55; m.envMapIntensity = 0.8; return; }
+  if (k === "floorTile") { m.roughness = 0.18; m.envMapIntensity = 1.2; return; }
+  if (!hx) return;
+  if (WOOD_HEX.has(hx)) { m.map = grainTexture(); m.roughness = 0.6; m.envMapIntensity = 0.7; }
+  else if (FABRIC_HEX.has(hx)) { m.bumpMap = fabricTexture(); m.bumpScale = 0.35; m.roughness = 0.97; m.envMapIntensity = 0.4; }
+  else if (METAL_HEX.has(hx)) { m.metalness = 0.95; m.roughness = 0.22; m.envMapIntensity = 1.4; }
+  else if (CERAMIC_HEX.has(hx)) { m.roughness = 0.12; m.envMapIntensity = 1.2; }
+  else if (LACQUER_HEX.has(hx)) { m.roughness = 0.38; m.envMapIntensity = 0.8; }
+  else if (hx === C.black) { m.roughness = 0.18; m.metalness = 0.3; m.envMapIntensity = 1.3; }
+  else if (m.roughness > 0.85) { m.envMapIntensity = 0.5; } // 牆面漆
+}
+// 開／關擬真：顏色轉線性空間、貼圖標 sRGB、套用材質調整；關閉時還原。共用材質用旗標避免重複轉換
+function syncPhotoMaterials(root, on) {
+  const seen = new Set();
+  root.traverse((o) => {
+    if (!o.material || o.isSprite) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+      if (seen.has(m)) return;
+      seen.add(m);
+      const u = m.userData;
+      if (on && !u.photoOn) {
+        u.photoBase = { color: m.color && m.color.clone(), emissive: m.emissive && m.emissive.clone(), roughness: m.roughness, metalness: m.metalness,
+          map: m.map, bumpMap: m.bumpMap, bumpScale: m.bumpScale, envMapIntensity: m.envMapIntensity, opacity: m.opacity };
+        if (m.color) m.color.convertSRGBToLinear();
+        if (m.emissive) m.emissive.convertSRGBToLinear();
+        if (m.map) m.map.encoding = THREE.sRGBEncoding;
+        tunePhoto(m);
+        u.photoOn = true; m.needsUpdate = true;
+      } else if (!on && u.photoOn) {
+        const b = u.photoBase;
+        if (b.color) m.color.copy(b.color);
+        if (b.emissive) m.emissive.copy(b.emissive);
+        ["roughness", "metalness", "bumpScale", "envMapIntensity", "opacity"].forEach((p) => { if (b[p] !== undefined) m[p] = b[p]; });
+        m.map = b.map; m.bumpMap = b.bumpMap;
+        if (m.map) m.map.encoding = THREE.LinearEncoding;
+        u.photoOn = false; m.needsUpdate = true;
+      }
+    });
+  });
+}
+// 26mm 等效（對角視角約 79°）換算成目前畫面比例的垂直視角
+const arFov = (aspect) => {
+  const t = Math.tan(THREE.MathUtils.degToRad(79.6) / 2) / Math.sqrt(1 + aspect * aspect);
+  return THREE.MathUtils.radToDeg(2 * Math.atan(t));
+};
+
 // active=false 時（手機切到平面圖）保留 renderer 只暫停繪製，避免反覆建立 WebGL context
 function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB, compare }) {
   const wrap = useRef(null);
@@ -1799,6 +1939,8 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
   const [split, setSplit] = useState(0.5);
   const [ghost, setGhost] = useState(false);
   S.current.ghost = ghost;
+  const [photo, setPhoto] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   S.current.compare = compare && !walk;
   S.current.split = split;
   const wallH = cutaway && !walk ? 110 : ceil;
@@ -1840,7 +1982,7 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
     scene.add(tags);
     Object.assign(s, { renderer, scene, camera, hemi, dir, arch, archB, furn, lamps, tags, floorMats: makeTextures(renderer), keys: {}, joy: null });
     s.orbit = { theta: 0.35, phi: 0.82, r: 1450, target: new THREE.Vector3(0, 40, 0) };
-    s.setFov = (f) => { camera.fov = Math.min(95, Math.max(25, f)); camera.updateProjectionMatrix(); };
+    s.setFov = (f) => { s.userFov = true; camera.fov = Math.min(110, Math.max(25, f)); camera.updateProjectionMatrix(); };
     s.updateCam = () => {
       const o = s.orbit;
       camera.position.set(
@@ -1854,9 +1996,107 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       const w = el.clientWidth, hh = el.clientHeight;
       if (!w || !hh) return;
       renderer.setSize(w, hh);
-      camera.aspect = w / hh; camera.updateProjectionMatrix();
+      camera.aspect = w / hh;
+      if (s.walkOn && s.photo && !s.userFov) camera.fov = arFov(camera.aspect);
+      camera.updateProjectionMatrix();
+      if (s.composer) {
+        s.composer.setSize(w, hh);
+        const pr = renderer.getPixelRatio();
+        s.fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (hh * pr));
+      }
     };
+    s.resize = resize;
     resize();
+
+    // 光線：一般模式維持原本；擬真模式改用窗光（低角度日光＋窗面天光）＋環境反射＋柔和陰影
+    s.applyLights = () => {
+      const n = s.night, p = s.photo;
+      const bg = new THREE.Color(n ? "#23201e" : p ? "#e7ecef" : "#e9e5df");
+      if (p) bg.convertSRGBToLinear();
+      scene.background = bg;
+      hemi.intensity = n ? (p ? 0.04 : 0.2) : p ? 0.12 : 0.75;
+      dir.intensity = n ? (p ? 0.02 : 0.04) : p ? 1.35 : 0.65;
+      dir.color.set(p ? 0xffe9cc : 0xfff1dc);
+      dir.position.copy(p ? new THREE.Vector3(260, 420, -820) : new THREE.Vector3(-300, 900, -500));
+      lamps.visible = n;
+      if (s.areas) s.areas.visible = p && !n;
+      scene.environment = p ? s.envTex : null;
+      const size = p ? (IS_TOUCH ? 2048 : 4096) : 2048;
+      if (dir.shadow.mapSize.x !== size) {
+        dir.shadow.mapSize.set(size, size);
+        if (dir.shadow.map) { dir.shadow.map.dispose(); dir.shadow.map = null; }
+      }
+      dir.shadow.bias = p ? -0.0002 : -0.0005;
+    };
+    s.setPhoto = async (on) => {
+      if (on) {
+        const ok = await loadFx();
+        if (!s.envTex) s.envTex = buildEnvTexture(renderer);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.85;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        camera.far = 4000; camera.updateProjectionMatrix();
+        if (ok && !s.composer && THREE.EffectComposer && THREE.SSAOPass) {
+          const w = el.clientWidth || 800, hh = el.clientHeight || 600;
+          // 後製：環境遮蔽 → 燈條光暈 → 景深（漫遊時）→ Gamma → 抗鋸齒
+          const composer = new THREE.EffectComposer(renderer);
+          const ssao = new THREE.SSAOPass(scene, camera, w, hh);
+          ssao.kernelRadius = 24; ssao.minDistance = 0.0001; ssao.maxDistance = 0.015;
+          composer.addPass(ssao);
+          composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(w, hh), 0.35, 0.5, 0.96));
+          if (!IS_TOUCH && THREE.BokehPass) {
+            s.bokeh = new THREE.BokehPass(scene, camera, { focus: 320, aperture: 0.000012, maxblur: 0.004, width: w, height: hh });
+            composer.addPass(s.bokeh);
+          }
+          composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
+          s.fxaa = new THREE.ShaderPass(THREE.FXAAShader);
+          composer.addPass(s.fxaa);
+          s.composer = composer;
+        }
+        if (THREE.RectAreaLightUniformsLib && !s.areas) {
+          // 每扇窗一盞面光源，模擬天空光從窗戶柔和地灑進來（手機省略）
+          THREE.RectAreaLightUniformsLib.init();
+          s.areas = new THREE.Group();
+          if (!IS_TOUCH) WINDOWS.forEach(([x1, y1, x2, y2]) => {
+            const horiz = y1 === y2, len = horiz ? Math.abs(x2 - x1) : Math.abs(y2 - y1);
+            const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+            const ix = horiz ? cx : cx - 60, iy = horiz ? cy + 60 : cy; // 往室內的方向（北窗朝南、東窗朝西）
+            const L = new THREE.RectAreaLight(0xe9f0ff, 2.6, len, 115);
+            L.position.set(PX(horiz ? cx : cx - 7), 150, PZ(horiz ? cy + 7 : cy));
+            L.lookAt(PX(ix), 140, PZ(iy));
+            s.areas.add(L);
+          });
+          scene.add(s.areas);
+        }
+        s.photo = true;
+        syncPhotoMaterials(scene, true);
+      } else {
+        s.photo = false;
+        renderer.toneMapping = THREE.NoToneMapping;
+        renderer.toneMappingExposure = 1;
+        renderer.outputEncoding = THREE.LinearEncoding;
+        camera.far = 9000; camera.updateProjectionMatrix();
+        syncPhotoMaterials(scene, false);
+      }
+      s.applyLights();
+      resize();
+    };
+    // 拍照：暫時把解析度拉到 2 倍、開滿效果算一張，存成 PNG
+    s.capture = () => {
+      const pr = renderer.getPixelRatio(), hiPr = Math.min(3, Math.max(2, pr * 2));
+      renderer.setPixelRatio(hiPr);
+      if (s.composer) s.composer.setPixelRatio(hiPr);
+      resize();
+      if (s.photo && s.composer) s.composer.render(); else renderer.render(scene, camera);
+      const url = renderer.domElement.toDataURL("image/png");
+      renderer.setPixelRatio(pr);
+      if (s.composer) s.composer.setPixelRatio(pr);
+      resize();
+      const a = document.createElement("a");
+      const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
+      a.href = url; a.download = `C3-實景-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+    };
     const ro = new ResizeObserver(resize);
     ro.observe(el);
     const stepWalk = (dt) => {
@@ -1912,6 +2152,9 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
           renderer.setScissor(lw, 0, W - lw, H); renderer.render(scene, camera);
           arch.visible = true; archB.visible = false;
           renderer.setScissorTest(false);
+        } else if (s.photo && s.composer) {
+          if (s.bokeh) s.bokeh.enabled = !!s.walkOn; // 景深只在人眼視角（漫遊）時開
+          s.composer.render();
         } else renderer.render(scene, camera);
       }
       raf = requestAnimationFrame(loop);
@@ -2050,9 +2293,11 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
     if (compare) buildArch(s.archB, wallH, s.floorMats, finB); else clearGroup(s.archB);
     s.lamps.children.forEach((p) => { p.position.y = ceil - 30; });
     s.tags.children.forEach((t) => { t.position.y = wallH + 25; });
+    if (s.photo) syncPhotoMaterials(s.scene, true);
   }, [wallH, ceil, fin, finB, compare]);
 
-  useEffect(() => { S.current.tags.visible = labels && !walk; }, [labels, walk]);
+  // 擬真模式隱藏房間標籤（照片裡不會有標籤）
+  useEffect(() => { S.current.tags.visible = labels && !walk && !photo; }, [labels, walk, photo]);
 
   useEffect(() => {
     const s = S.current;
@@ -2068,15 +2313,24 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       }
       s.furn.add(g);
     });
+    if (s.photo) syncPhotoMaterials(s.scene, true);
   }, [items, sel, wallH]);
 
   useEffect(() => {
     const s = S.current;
-    s.scene.background = new THREE.Color(night ? "#23201e" : "#e9e5df");
-    s.hemi.intensity = night ? 0.2 : 0.75;
-    s.dir.intensity = night ? 0.04 : 0.65;
-    s.lamps.visible = night;
+    s.night = night;
+    s.applyLights();
   }, [night]);
+
+  const togglePhoto = async () => {
+    const s = S.current;
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    await s.setPhoto(!photo);
+    if (s.walkOn) { s.userFov = false; s.camera.fov = !photo ? arFov(s.camera.aspect) : 70; s.camera.updateProjectionMatrix(); }
+    setPhoto(!photo);
+    setPhotoBusy(false);
+  };
 
   const goFocus = (f) => {
     setFocus(f.n);
@@ -2091,8 +2345,9 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
   const startWalk = () => {
     const s = S.current;
     s.walkSt = { ...WALK_START };
-    s.walkOn = true; s.anim = null; s.keys = {}; s.joy = null;
-    s.camera.fov = 70; s.camera.updateProjectionMatrix();
+    s.walkOn = true; s.anim = null; s.keys = {}; s.joy = null; s.userFov = false;
+    // 擬真模式下用 26mm 廣角等效視角（人眼高度 155cm）
+    s.camera.fov = s.photo ? arFov(s.camera.aspect) : 70; s.camera.updateProjectionMatrix();
     setWalk(true);
   };
   const endWalk = () => {
@@ -2123,6 +2378,8 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       h("div", { className: "chips" },
         h("button", { className: "chip on", onClick: endWalk }, "結束漫遊"),
         h("button", { className: "chip" + (ghost ? " on" : ""), onClick: () => setGhost((v) => !v), title: "打開後可穿過牆和傢俱" }, "穿牆"),
+        h("button", { className: "chip" + (photo ? " on" : ""), onClick: togglePhoto, disabled: photoBusy }, photoBusy ? "載入中…" : "擬真"),
+        photo ? h("button", { className: "chip", onClick: () => S.current.capture() }, "拍照") : null,
         h("button", { className: "chip", onClick: () => S.current.setFov(S.current.camera.fov * 0.85), "aria-label": "拉近" }, "＋"),
         h("button", { className: "chip", onClick: () => S.current.setFov(S.current.camera.fov / 0.85), "aria-label": "拉遠" }, "－")),
       h("canvas", { ref: mini, className: "minimap", width: 320, height: 289 }),
@@ -2153,7 +2410,9 @@ function View3D({ items, sel, onSelect, night, cutaway, active, ceil, fin, finB,
       h("span", { className: "chipsep" }),
       VIEWS.map((v) => h("button", { key: v.n, className: "chip", onClick: () => goView(v) }, v.n)),
       h("button", { className: "chip" + (labels ? " on" : ""), onClick: () => setLabels((v) => !v) }, "標籤"),
-      h("button", { className: "chip walkbtn", onClick: startWalk }, "漫遊")),
+      h("button", { className: "chip" + (photo ? " on" : ""), onClick: togglePhoto, disabled: photoBusy, title: "攝影級材質、窗光、反射與環境遮蔽" }, photoBusy ? "載入中…" : "擬真"),
+      photo ? h("button", { className: "chip", onClick: () => S.current.capture() }, "拍照") : null,
+      h("button", { className: "chip walkbtn", onClick: startWalk }, photo ? "AR 視角" : "漫遊")),
     h("div", { className: "hint3" },
       h("span", { className: "hint-desk" }, `天花板 ${ceil} cm・左鍵旋轉・右鍵或 Shift 拖曳、方向鍵平移・滾輪縮放`),
       h("span", { className: "hint-touch" }, "單指旋轉・雙指縮放與平移")));
