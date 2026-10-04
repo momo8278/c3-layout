@@ -353,6 +353,9 @@ const LIB = {
   glasswall: { name: "玻璃展示吊櫃", w: 98, d: 35, h: 240, cat: "收納" },
   floatshelf: { name: "懸浮層板", w: 258, d: 25, h: 3, cat: "收納" },
   floatdesk: { name: "衣櫃延伸書桌", w: 110, d: 40, h: 75, cat: "臥室" },
+  // 市售塑膠抽屜櫃（白色抽屜＋淺木紋天板）
+  chest4: { name: "四層抽屜櫃 HG-554B", w: 56, d: 41.5, h: 81, cat: "收納" },
+  chest5: { name: "五層抽屜櫃 HG-555B", w: 56, d: 41.5, h: 100, cat: "收納" },
 };
 // 插座：沿用傢俱資料結構，h = 離地安裝高度；tag 為圖示文字，power = 是否為電源插座，serves = 專用對象（不算被它擋住）
 const OUTLETS = {
@@ -653,7 +656,7 @@ function computeOverlaps(items) {
 /* ============ 插座檢查 ============ */
 // 會擋住插座的傢俱（書桌、餐桌、椅子下方是空的；床頭櫃後的插座本來就是給床頭用的，都不算）
 const BLOCKERS = new Set(["sofa", "armchair", "tvcab", "piano", "sideboard", "glasscab", "tallcab", "bench", "wardrobe", "bookshelf",
-  "storage", "bed", "bedQ", "bedS", "fridge", "counter", "washer", "toilet", "sink", "tub", "appliance", "platform", "drawers", "headcab"]);
+  "storage", "bed", "bedQ", "bedS", "fridge", "counter", "washer", "toilet", "sink", "tub", "appliance", "platform", "drawers", "headcab", "chest4", "chest5"]);
 // 需要電源的傢俱電器：附近 150cm 內要有可用的電源插座（電視櫃要電視插座）
 const NEEDS = { fridge: "冰箱", washer: "洗衣機", tvcab: "電視", desk: "書桌", builtindesk: "書桌", floatdesk: "書桌", nightstand: "床頭", counter: "流理台", appliance: "電器櫃" };
 const CORD = 150;
@@ -720,7 +723,7 @@ const FILL = {
   sideboard: "#efe8dc", tallcab: "#efe8dc", appliance: "#efe8dc", wardrobe: "#efe8dc", storage: "#efe8dc",
   bench: "#c49a6c", glasscab: "#4a4542", dtable: "#c49a6c", desk: "#c49a6c", chair: "#b38a5e",
   bed: "#f7f4ee", bedQ: "#f7f4ee", bedS: "#f7f4ee", nightstand: "#c49a6c", bookshelf: "#c49a6c",
-  platform: "#efe8dc", builtindesk: "#d8bd96", drawers: "#efe8dc", deskchair: "#ebe5da", roundrug: "#e6dccd", step: "#e3dccf", headcab: "#e9dfcf", floatdesk: "#efe8dc",
+  platform: "#efe8dc", builtindesk: "#d8bd96", drawers: "#efe8dc", deskchair: "#ebe5da", roundrug: "#e6dccd", step: "#e3dccf", headcab: "#e9dfcf", floatdesk: "#efe8dc", chest4: "#f7f7f5", chest5: "#f7f7f5",
   piano: "#2f2b28", plant: "#8aa077", fridge: "#e1e1df", counter: "#e5ddd0", washer: "#f4f4f2",
   toilet: "#fbfbfa", sink: "#fbfbfa", tub: "#fbfbfa", column: "#2f2b28", storeroom: "#d2b48c", shower: "#dfe6e8",
 };
@@ -1345,6 +1348,19 @@ function buildItem(it, wallH) {
       g.add(pl);
       addGeo(g, new THREE.CylinderGeometry(5, 5, 11, 18), "#efe7da", w * 0.3, top + 5.5, back + 12);
       addBox(g, 14, 9, 7, "#7b5638", w * 0.38, top, back + 10);
+      break;
+    }
+    case "chest4": case "chest5": {
+      // 塑膠抽屜櫃：白色框體、抽屜面板偏左（右側露出框架）、上緣灰色把手、淺木紋天板
+      const n = it.type === "chest5" ? 5 : 4, base = 3, top = 2.5, fh = (hgt - base - top) / n;
+      addBox(g, w - 2, base, d - 2, "#e6e6e3", 0, 0);
+      addBox(g, w, hgt - base - top, d, "#f0f0ed", 0, base);
+      for (let i = 0; i < n; i++) {
+        const y = base + fh * i;
+        addBox(g, w - 7, fh - 1.5, 1.2, "#fbfbfa", -1.5, y + 0.75, d / 2 + 0.6);
+        addBox(g, w * 0.35, 1.2, 1.4, "#d4d4d0", -1.5, y + fh - 6, d / 2 + 1.1, false);
+      }
+      addBox(g, w + 0.5, top, d + 0.5, "#dcc7a6", 0, hgt - top);
       break;
     }
     case "floatdesk": {
