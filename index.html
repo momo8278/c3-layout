@@ -25,7 +25,10 @@ header{position:relative;z-index:20;display:flex;align-items:center;justify-cont
 .menuwrap{position:relative}
 .backdrop{position:fixed;inset:0;z-index:30}
 .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:31;display:flex;flex-direction:column;min-width:150px;
- background:#fff;border:1px solid #d8d1c8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);overflow:hidden}
+ background:#fff;border:1px solid #d8d1c8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);
+ max-height:calc(100dvh - 130px);overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.menu>*{flex-shrink:0}
+.menurow>*:first-child{white-space:nowrap}
 .menu button{border:0;background:#fff;text-align:left;min-height:46px;padding:10px 16px;font-size:15px;font-family:inherit;color:#2f2b28}
 .menu button+button,.menu .menurow,.menurow+button{border-top:1px solid #eee8e1}
 .menurow{display:flex;align-items:center;gap:6px;padding:8px 16px;min-height:52px}
@@ -514,6 +517,9 @@ function normalizeItems(data) {
   return out;
 }
 const KEY_CEIL = "c3-ceil-v1";
+// 預設配置版本：每次改 defaultItems 就更新這個值，使用者下次開啟會自動換成新預設（舊配置先備份成方案）
+const DEFAULT_VER = "2026-10-04";
+const KEY_DEFVER = "c3-default-ver";
 // 方案：[{ id, name, savedAt, ceilH, items }]；不合格的方案個別剔除
 const KEY_SCHEMES = "c3-schemes-v1";
 // 裝修搭配：{ A: { wall: {房間: 油漆鍵}, floor: {房間: 花紋鍵} }, B: {...} }
@@ -570,8 +576,19 @@ function loadSaved() {
   } catch (e) { /* 用預設 */ }
   try {
     const raw = localStorage.getItem(KEY);
+    const oldVer = localStorage.getItem(KEY_DEFVER);
+    localStorage.setItem(KEY_DEFVER, DEFAULT_VER);
     if (!raw) return { items: defaultItems(ceil), status: "", ceil };
     const arr = normalizeItems(JSON.parse(raw));
+    // 預設配置改版後第一次開啟：舊配置先另存成方案備份，再換成新預設
+    if (arr && oldVer !== DEFAULT_VER) {
+      const name = `更新前備份 ${fmtTime(new Date().toISOString())}`;
+      const bak = { id: newId("scheme"), name, savedAt: new Date().toISOString(), ceilH: ceil, items: arr };
+      localStorage.setItem(KEY_SCHEMES, JSON.stringify([bak, ...loadSchemes()]));
+      const def = defaultItems(ceil);
+      localStorage.setItem(KEY, JSON.stringify(def));
+      return { items: def, status: `預設配置已更新，原配置已備份為方案「${name}」`, ceil, updated: true };
+    }
     if (arr) return { items: arr, status: "已載入上次的配置", ceil };
     return { items: defaultItems(ceil), status: "存檔格式不符，已改用預設配置", ceil };
   } catch (e) {
@@ -3471,6 +3488,8 @@ function App() {
   const lastSynced = useRef(null);
   const joined = useRef(false);
   const dragging = useRef(false);
+  // 剛換成新預設時，加入房間後以本機為準推上去（不被雲端舊配置蓋回）
+  const pushOnJoin = useRef(!!boot.updated);
 
   const [schemes, setSchemes] = useState(loadSchemes);
   const [schemeUI, setSchemeUI] = useState(false);
@@ -3524,8 +3543,9 @@ function App() {
     const ref = roomItemsRef(roomCode);
     const hd = ref.on("value", (snap) => {
       const v = snap.val();
-      if (v == null) {
-        // 空房間：以本機配置當起始內容
+      if (v == null || pushOnJoin.current) {
+        pushOnJoin.current = false;
+        // 空房間（或剛換新預設）：以本機配置當起始內容
         const s = JSON.stringify(itemsRef.current);
         lastSynced.current = s;
         ref.set(s);
