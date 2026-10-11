@@ -4160,6 +4160,14 @@ function App() {
           h("button", { className: "mbtn pri", onClick: saveScheme }, "另存目前配置")),
         schemes.length === 0 ? h("p", { className: "mnote" }, "還沒有方案。把目前的擺法存起來，之後可以隨時切回來比較。") : null,
         h("div", { className: "slist" },
+          // 固定第一列：回到目前上傳版本的初始（預設）配置
+          h("div", { className: "sitem" },
+            h("div", { className: "sname" }, h("strong", null, "最新上傳的初始版本"),
+              h("small", null, `版本 ${DEFAULT_VER.slice(0, 10)}・${defaultItems(ceil).length} 件・天花板 ${ceil}`)),
+            h("div", { className: "sbtns" },
+              h("button", { className: "sb pri" + (confirmAct && confirmAct.id === "__default" ? " warn" : ""),
+                onClick: () => twoStep("__default", "load", () => { setItems(defaultItems(ceil)); setSel(null); setSchemeUI(false); setStatus("已回到最新上傳的初始版本"); }) },
+                confirmAct && confirmAct.id === "__default" ? "確定載入？" : "載入"))),
           schemes.map((sc) => {
             const ask = (act) => confirmAct && confirmAct.id === sc.id && confirmAct.act === act;
             return h("div", { key: sc.id, className: "sitem" },
