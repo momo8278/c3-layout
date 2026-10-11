@@ -249,7 +249,8 @@ const C = {
 
 /* ============ 戶型資料（單位 cm，原點＝客廳左上角） ============ */
 const WALLS = [
-  [0, 0, 40, 0], [245, 0, 345, 0], [510, 0, 625, 0], [795, 0, 835, 0],
+  // 主臥東西依使用者確認淨寬 304.5：東外牆內收到 x826.5（外牆，不影響其他房間與門）；北牆維持原圖（使用者指定不外推）；南北 321：主臥／主浴之間的牆南移 18 到 y333（使用者同意主浴縮到約 130，主浴門與東窗一起南移）
+  [0, 0, 40, 0], [245, 0, 345, 0], [510, 0, 625, 0], [795, 0, 826.5, 0],
   [0, 0, 0, 655], [0, 655, 148, 655],
   [255, 570, 255, 915], [255, 570, 265, 570], [340, 570, 418, 570],
   [418, 570, 418, 915], [255, 915, 1020, 915],
@@ -260,13 +261,13 @@ const WALLS = [
   [510, 0, 510, 333], [510, 410, 510, 485], [510, 565, 510, 720],
   [510, 475, 875, 475],
   [835, 475, 835, 505], [835, 595, 835, 720],
-  [630, 315, 875, 315], [875, 315, 875, 325], [875, 405, 875, 475],
-  [630, 315, 630, 325], [630, 400, 630, 475],
-  [835, 0, 835, 315],
+  [630, 333, 875, 333], [875, 333, 875, 343], [875, 423, 875, 475],
+  [630, 333, 630, 343], [630, 418, 630, 475],
+  [826.5, 0, 826.5, 333],
 ];
 const WINDOWS = [
   [40, 0, 245, 0], [345, 0, 510, 0], [625, 0, 795, 0],
-  [835, 505, 835, 595], [875, 325, 875, 405],
+  [835, 505, 835, 595], [875, 343, 875, 423],
 ];
 // h=鉸鍊點 e=門片關閉端 s=開啟方向
 const DOORS = [
@@ -275,24 +276,25 @@ const DOORS = [
   { h: [300, 327], e: [378, 327], s: -1 },
   { h: [510, 410], e: [510, 333], s: 1 }, // 主臥走道門：依弱電圖，鉸鍊在南側、往東開
   { h: [510, 485], e: [510, 565], s: -1 },
-  { h: [630, 325], e: [630, 400], s: -1 },
+  { h: [630, 343], e: [630, 418], s: -1 },
   { h: [425, 720], e: [500, 720], s: 1 },
   { h: [835, 730], e: [835, 805], s: 1 },
 ];
 const FLOORS = [
   [0, 0, 285, 570, "w"], [0, 570, 255, 655, "w"], [285, 327, 510, 570, "w"],
-  [418, 570, 510, 720, "w"], [285, 0, 510, 327, "w"], [510, 0, 835, 315, "w"],
+  [418, 570, 510, 720, "w"], [285, 0, 510, 327, "w"], [510, 0, 826.5, 315, "w"],
   [510, 315, 630, 475, "w"], [510, 475, 835, 720, "w"],
-  [630, 315, 875, 475, "t"], [255, 570, 418, 915, "t"],
+  [630, 333, 875, 475, "t"], [255, 570, 418, 915, "t"],
   [418, 720, 835, 915, "t"], [835, 720, 1020, 915, "t"],
+  [630, 315, 826.5, 333, "w"],
 ];
 // ar = 計算面積用的長寬（cm）；餐廳寬取平面範圍 285→510
 const ROOMS = [
   { n: "客廳", d: "286.5 × 645", x: 150, y: 330, ar: [286.5, 645] },
   { n: "餐廳", d: "深 244", x: 470, y: 380, ar: [225, 244] },
   { n: "臥室", d: "231 × 319", x: 345, y: 240, ar: [231, 319] },
-  { n: "主臥", d: "344.5 × 321", x: 640, y: 290, ar: [344.5, 321] },
-  { n: "主浴", d: "231 × 144", x: 690, y: 450, ar: [231, 144] },
+  { n: "主臥", d: "304.5 × 321", x: 640, y: 255, ar: [304.5, 321] }, // 使用者確認
+  { n: "主浴", d: "231 × 130", x: 690, y: 455, ar: [231, 130] }, // 主臥南北改 321 後縮小（使用者同意）
   { n: "次臥", d: "316 × 241", x: 740, y: 690, ar: [316, 241] },
   { n: "客浴", d: "145 × 239", x: 330, y: 860, ar: [145, 239] },
   { n: "廚房", d: "415 × 171.5", x: 520, y: 790, ar: [415, 171.5] },
@@ -302,7 +304,7 @@ const ROOMS = [
 const FOCUS = [
   { n: "全戶", x: 510, y: 457, r: 1450 },
   { n: "客餐廳", x: 220, y: 330, r: 780 },
-  { n: "主臥", x: 672, y: 158, r: 620 },
+  { n: "主臥", x: 668, y: 166, r: 620 },
   { n: "臥室", x: 398, y: 164, r: 520 },
   { n: "次臥", x: 672, y: 597, r: 540 },
   { n: "廚房", x: 620, y: 818, r: 560 },
@@ -354,7 +356,14 @@ const LIB = {
   floatshelf: { name: "懸浮層板", w: 258, d: 25, h: 3, cat: "收納" },
   floatdesk: { name: "衣櫃延伸書桌", w: 110, d: 40, h: 75, cat: "臥室" },
   // 市售塑膠抽屜櫃（白色抽屜＋淺木紋天板）
-  closet: { name: "開放式衣櫃（折門）", w: 240, d: 60, h: 240, cat: "收納" },
+  storagesofa: { name: "收納沙發（抽屜底座）", w: 190, d: 90, h: 85, cat: "客廳" },
+  pedestaldesk: { name: "沙發旁書桌", w: 86, d: 50, h: 75, cat: "客廳" },
+  wallpanel: { name: "木作背牆", w: 276, d: 2, h: 155, cat: "客廳" },
+  oakbed: { name: "木作床架雙人床", w: 184, d: 205, h: 50, cat: "臥室" },
+  wainscot: { name: "床頭木作牆板", w: 303, d: 3, h: 95, cat: "臥室" },
+  vanitydesk: { name: "化妝書桌", w: 196, d: 40, h: 75, cat: "臥室" },
+  pouf: { name: "圓凳", w: 38, d: 38, h: 45, cat: "臥室" },
+  closet: { name: "立柱衣櫃（滑門）", w: 240, d: 60, h: 240, cat: "收納" },
   chest4: { name: "四層抽屜櫃 HG-554B", w: 56, d: 41.5, h: 81, cat: "收納" },
   chest5: { name: "五層抽屜櫃 HG-555B", w: 56, d: 41.5, h: 100, cat: "收納" },
 };
@@ -382,8 +391,8 @@ const NEW_TAG = "（新增）";
 const isNewOutlet = (it) => isOutlet(it.type) && it.name.startsWith(NEW_TAG);
 // 給水電看的位置描述用：各空間範圍（上＝北，窗戶側）
 const ROOM_RECTS = [
-  ["客廳", 0, 0, 285, 570], ["玄關", 0, 570, 255, 655], ["臥室", 285, 0, 510, 327], ["主臥", 510, 0, 835, 315],
-  ["走道", 510, 315, 630, 475], ["主浴", 630, 315, 875, 475], ["次臥", 510, 475, 835, 720], ["餐廳", 285, 327, 510, 720],
+  ["客廳", 0, 0, 285, 570], ["玄關", 0, 570, 255, 655], ["臥室", 285, 0, 510, 327], ["主臥", 510, 0, 826.5, 333],
+  ["走道", 510, 315, 630, 475], ["主浴", 630, 333, 875, 475], ["次臥", 510, 475, 835, 720], ["餐廳", 285, 327, 510, 720],
   ["客浴", 255, 570, 418, 915], ["廚房", 418, 720, 835, 915], ["工作陽台", 835, 720, 1020, 915],
 ];
 function describePos(it) {
@@ -422,9 +431,11 @@ const defaultItems = (ceil = CEIL_DEF) => [
   mk("storeroom", 54.5, 581.5, 180, { h: ceil }),
   mk("tallcab", 125.5, 549, 270, { name: "玄關櫃", w: 70, h: ceil }),
   mk("bench", 125.5, 616.5, 270, { w: 65 }),
-  mk("rug", 160, 170, 90),
-  mk("coffee", 130, 170, 90),
-  mk("sofa", 234, 170, 90),
+  // 沙發背牆（參考圖）：木作背牆＋上方吊櫃（底部燈條），抽屜底座收納沙發，南端接沙發旁書桌（柱子凸出到 y45，從其後起算）
+  mk("rug", 160, 150, 90),
+  mk("coffee", 130, 145, 90),
+  mk("wallpanel", 278, 183, 90), mk("wallcab", 261.5, 183, 90, { w: 276, h: ceil, name: "沙發背牆吊櫃" }),
+  mk("storagesofa", 232, 140, 90), mk("pedestaldesk", 252, 278, 90), mk("deskchair", 200, 278, 270),
   mk("dtable", 385, 450, 0),
   mk("chair", 350, 385, 0, { name: "餐椅" }), mk("chair", 420, 385, 0, { name: "餐椅" }),
   mk("chair", 350, 515, 180, { name: "餐椅" }), mk("chair", 420, 515, 180, { name: "餐椅" }),
@@ -435,12 +446,16 @@ const defaultItems = (ceil = CEIL_DEF) => [
   // 衣櫃縮成 80，東南角接衣櫃延伸的懸浮書桌（靠東牆，南端上方拱形開放格）
   mk("wardrobe", 424, 291, 180, { w: 80 }), mk("floatdesk", 484, 266, 90),
   // 主臥
-  mk("bedQ", 729, 150, 90), mk("nightstand", 809, 35.5, 90), mk("nightstand", 809, 264.5, 90),
-  // 依參考圖：開放式立柱衣櫃＋折門（取代原系統衣櫃，位置尺寸不變）
+  // 依參考圖：東牆床頭木作牆板＋燈條、木作床架（床頭朝東）、窗側一個床頭櫃、南牆化妝書桌＋白色層板、床下地毯；床尾西牆衣櫃不動
+  mk("wainscot", 819, 166.5, 90, { w: 321 }), mk("rug", 697, 143, 90, { w: 220, d: 230 }),
+  mk("oakbed", 715, 143, 90), mk("nightstand", 797.5, 28.5, 90),
+  mk("vanitydesk", 724, 307, 180, { w: 188 }), mk("pouf", 780, 265, 0), mk("pouf", 660, 265, 0),
+  mk("floatshelf", 690, 314.5, 180, { w: 90, d: 25, h: 160, name: "白色懸浮層板" }),
+  // 依參考圖：立柱衣櫃（內部吊桿／層板／收納盒）＋關閉的滑門（位置尺寸不變）
   mk("closet", 546, 130, 270, { w: 240, h: ceil }),
   // 主浴
   // 依主浴照片：浴缸在東側窗下（填滿南北寬）、南牆由內到外是馬桶、木作洗手台
-  mk("tub", 831.5, 395, 90, { w: 148 }), mk("toilet", 760, 436.5, 180), mk("sink", 685, 446.5, 180, { w: 70 }),
+  mk("tub", 831.5, 404, 90, { w: 128 }), mk("toilet", 760, 436.5, 180), mk("sink", 685, 446.5, 180, { w: 70 }),
   // 次臥
   // 次臥（依參考圖）：西牆南段衣櫃（原位）、南牆系統書桌＋L 型回桌（木作瀑布邊）、床頭櫃檯接續書桌（同深同高）、
   // 東側架高收納抽屜床台（床頭靠櫃檯）、上方玻璃展示吊櫃＋奶油白吊櫃與懸浮層板、圓背書桌椅與圓地毯
@@ -478,12 +493,13 @@ function defaultOutlets() {
     o("o_net", 8, 122, 270, 100), o("o_tv", 8, 168, 270, 100), o("o_gen", 8, 208, 270, 100), o("o_gen", 8, 252, 270, 100),
     o("o_gen", 8, 455, 270, 30), o("o_gen", 8, 590, 270, 30),
     o("o_tel", 277, 79, 90, 30), o("o_gen", 277, 114, 90, 30),
+    o("o_gen", 277, 290, 90, 90, NEW_TAG + "沙發旁書桌插座"),
     o("o_panel", 40, 647, 180, 150, "弱電箱（高度未標）"), o("o_intercom", 75, 647, 180, 120),
     // 臥室
     o("o_gen", 293, 96, 270, 30), o("o_gen", 502, 44, 90, 30), o("o_tel", 502, 79, 90, 30), o("o_gen", 502, 234, 90, 30),
     // 主臥：西牆電視位、東牆床頭兩側
     o("o_tv", 518, 157, 270, 100), o("o_gen", 518, 184, 270, 100),
-    o("o_gen", 827, 39, 90, 30), o("o_gen", 827, 275, 90, 30), o("o_tel", 827, 297, 90, 30),
+    o("o_gen", 818.5, 39, 90, 30), o("o_gen", 818.5, 293, 90, 30), o("o_tel", 818.5, 315, 90, 30),
     // 主浴
     o("o_basin", 641, 467, 180, 30), o("o_toilet", 777, 467, 180, 30),
     // 次臥
@@ -523,7 +539,7 @@ function normalizeItems(data) {
 }
 const KEY_CEIL = "c3-ceil-v1";
 // 預設配置版本：每次改 defaultItems 就更新這個值，使用者下次開啟會自動換成新預設（舊配置先備份成方案）
-const DEFAULT_VER = "2026-10-04b";
+const DEFAULT_VER = "2026-10-11i";
 const KEY_DEFVER = "c3-default-ver";
 // 方案：[{ id, name, savedAt, ceilH, items }]；不合格的方案個別剔除
 const KEY_SCHEMES = "c3-schemes-v1";
@@ -636,7 +652,7 @@ const segBox = ([x1, y1, x2, y2]) =>
     : { x1: x1 - T / 2, x2: x1 + T / 2, y1: Math.min(y1, y2) - T / 2, y2: Math.max(y1, y2) + T / 2 };
 const WALL_BOXES = [...WALLS, ...WINDOWS].map(segBox);
 // 不參與碰撞／重疊：地毯、插座、吊在牆上的吊櫃（下方可放書桌）
-const WALL_MOUNT = new Set(["wallcab", "glasswall", "floatshelf"]);
+const WALL_MOUNT = new Set(["wallcab", "glasswall", "floatshelf", "wallpanel", "wainscot"]);
 const noCollide = (t) => t === "rug" || t === "roundrug" || WALL_MOUNT.has(t) || isOutlet(t);
 
 function computeOverlaps(items) {
@@ -658,9 +674,9 @@ function computeOverlaps(items) {
 /* ============ 插座檢查 ============ */
 // 會擋住插座的傢俱（書桌、餐桌、椅子下方是空的；床頭櫃後的插座本來就是給床頭用的，都不算）
 const BLOCKERS = new Set(["sofa", "armchair", "tvcab", "piano", "sideboard", "glasscab", "tallcab", "bench", "wardrobe", "bookshelf",
-  "storage", "bed", "bedQ", "bedS", "fridge", "counter", "washer", "toilet", "sink", "tub", "appliance", "platform", "drawers", "headcab", "chest4", "chest5", "closet"]);
+  "storage", "bed", "bedQ", "bedS", "fridge", "counter", "washer", "toilet", "sink", "tub", "appliance", "platform", "drawers", "headcab", "chest4", "chest5", "closet", "storagesofa", "pedestaldesk", "oakbed"]);
 // 需要電源的傢俱電器：附近 150cm 內要有可用的電源插座（電視櫃要電視插座）
-const NEEDS = { fridge: "冰箱", washer: "洗衣機", tvcab: "電視", desk: "書桌", builtindesk: "書桌", floatdesk: "書桌", nightstand: "床頭", counter: "流理台", appliance: "電器櫃" };
+const NEEDS = { fridge: "冰箱", washer: "洗衣機", tvcab: "電視", desk: "書桌", builtindesk: "書桌", floatdesk: "書桌", pedestaldesk: "書桌", vanitydesk: "書桌", nightstand: "床頭", counter: "流理台", appliance: "電器櫃" };
 const CORD = 150;
 function checkOutlets(items) {
   const outs = items.filter((i) => isOutlet(i.type)), furn = items.filter((i) => !isOutlet(i.type));
@@ -725,7 +741,7 @@ const FILL = {
   sideboard: "#efe8dc", tallcab: "#efe8dc", appliance: "#efe8dc", wardrobe: "#efe8dc", storage: "#efe8dc",
   bench: "#c49a6c", glasscab: "#4a4542", dtable: "#c49a6c", desk: "#c49a6c", chair: "#b38a5e",
   bed: "#f7f4ee", bedQ: "#f7f4ee", bedS: "#f7f4ee", nightstand: "#c49a6c", bookshelf: "#c49a6c",
-  platform: "#efe8dc", builtindesk: "#d8bd96", drawers: "#efe8dc", deskchair: "#ebe5da", roundrug: "#e6dccd", step: "#e3dccf", headcab: "#e9dfcf", floatdesk: "#efe8dc", chest4: "#f7f7f5", closet: "#efe8dc", chest5: "#f7f7f5",
+  platform: "#efe8dc", builtindesk: "#d8bd96", drawers: "#efe8dc", deskchair: "#ebe5da", roundrug: "#e6dccd", step: "#e3dccf", headcab: "#e9dfcf", floatdesk: "#efe8dc", chest4: "#f7f7f5", closet: "#efe8dc", storagesofa: "#e7ddcf", oakbed: "#f7f4ee", pouf: "#ebe5da", vanitydesk: "#efe9df", pedestaldesk: "#d8bd96", chest5: "#f7f7f5",
   piano: "#2f2b28", plant: "#8aa077", fridge: "#e1e1df", counter: "#e5ddd0", washer: "#f4f4f2",
   toilet: "#fbfbfa", sink: "#fbfbfa", tub: "#fbfbfa", column: "#2f2b28", storeroom: "#d2b48c", shower: "#dfe6e8",
 };
@@ -737,6 +753,7 @@ function ItemShape({ it }) {
   const st = { fill: f, stroke: "#6b6159", strokeWidth: 1.2 };
   if (type === "coffee") return h("ellipse", { rx: w / 2, ry: d / 2, ...st });
   // 書桌椅：圓形坐墊＋後方弧形椅背（與 3D 圓背椅一致）
+  if (type === "pouf") return h("circle", { r: Math.min(w, d) / 2, ...st });
   if (type === "deskchair") {
     const r = Math.min(w, d) / 2 - 1;
     return h(React.Fragment, null,
@@ -1340,11 +1357,11 @@ function buildItem(it, wallH) {
       break;
     }
     case "floatshelf": {
-      // 懸浮層板（參考圖二）：上緣離地 118，底面燈條往下洗牆
-      const top = 118;
-      addBox(g, w, hgt, d, "#cdb08a", 0, top - hgt, 0);
-      addBox(g, w - 6, 1.2, 1.4, glowMat(), 0, top - hgt - 1.2, d / 2 - 3, false);
-      addBox(g, w - 6, 32, 0.5, glowWash(true), 0, top - hgt - 32, back + 0.6, false);
+      // 懸浮層板（參考圖二）：上緣離地 118，底面燈條往下洗牆；高 >10 時把「高」當上緣離地高度（板厚固定 3）；名稱含「白」用白色
+      const th = hgt > 10 ? 3 : hgt, top = hgt > 10 ? hgt : 118;
+      addBox(g, w, th, d, it.name.includes("白") ? "#f3efe8" : "#cdb08a", 0, top - th, 0);
+      addBox(g, w - 6, 1.2, 1.4, glowMat(), 0, top - th - 1.2, d / 2 - 3, false);
+      addBox(g, w - 6, 32, 0.5, glowWash(true), 0, top - th - 32, back + 0.6, false);
       const pl = new THREE.PointLight(0xffc98a, 0.35, 90, 2);
       pl.position.set(0, top - 10, back + d * 0.5);
       g.add(pl);
@@ -1408,6 +1425,10 @@ function buildItem(it, wallH) {
       [-1, 1].forEach((sx) => addBox(g, 3, hgt - 44 - 16, 3, "#7b5638", sx * 9, 44, back + 6));
       break;
     }
+    case "pouf": {
+      addGeo(g, new THREE.CylinderGeometry(w / 2 - 1, w / 2, hgt, 28), "#ebe5da", 0, hgt / 2, 0);
+      break;
+    }
     case "roundrug": {
       addGeo(g, new THREE.CylinderGeometry(w / 2, w / 2, 1, 40), "#e2d3bd", 0, 0.5, 0, 1, 1, d / w);
       break;
@@ -1469,8 +1490,84 @@ function buildItem(it, wallH) {
       addBox(g, w - 6, 1, 2, glowMat(), 0, kick - 1, d / 2 - 2, false);
       break;
     }
+    case "oakbed": {
+      // 木作床架（參考圖）：淺木厚床座、床墊、雙片繃布床頭板、被毯與抱枕（床頭在 back）
+      const oak = "#d8bd96", hb = 6, mw = Math.min(180, w - 4), md = Math.min(200, d - hb);
+      addBox(g, w, 28, d - hb, oak, 0, 0, hb / 2);
+      addBox(g, mw, 20, md, "#f7f4ee", 0, 28, hb / 2);
+      addBox(g, mw + 2, 5, md * 0.62, "#efe6da", 0, 46, d / 2 - md * 0.31);
+      addBox(g, mw + 3, 4, 30, "#d9c9b4", 0, 49, d / 2 - md * 0.5);
+      [-1, 1].forEach((s) => addBox(g, mw / 2 - 3, 60, hb, "#e6dccd", s * (mw / 4 + 0.75), 30, back + hb / 2));
+      [-1, 1].forEach((s) => addBox(g, mw / 2 - 14, 16, 12, "#fbfaf7", s * (mw / 4), 48, back + hb + 10));
+      addBox(g, mw * 0.4, 20, 10, "#e0d3bf", 0, 48, back + hb + 22);
+      break;
+    }
+    case "wainscot": {
+      // 床頭木作牆板（參考圖）：淺木矮牆板、頂緣燈條往上洗牆，上方掛畫
+      addBox(g, w, hgt, d, "#d9c19c", 0, 0, 0);
+      addBox(g, w - 4, 1.2, 1.2, glowMat(), 0, hgt, back + 1, false);
+      addBox(g, w - 6, 45, 0.5, glowWash(), 0, hgt, back - 0.2, false);
+      const pl = new THREE.PointLight(0xffc98a, 0.35, 120, 2);
+      pl.position.set(0, hgt + 10, back + 12);
+      g.add(pl);
+      addBox(g, 62, 62, 2, "#b08a62", 0, hgt + 50, back - 0.6);
+      addBox(g, 52, 52, 0.6, "#d4a679", 0, hgt + 55, back + 0.8, false);
+      break;
+    }
+    case "vanitydesk": {
+      // 化妝書桌（參考圖）：奶油白長桌面、中段三抽櫃、外端（+x）側板落地，兩側留腳空間；桌上燈鏡與擺件
+      const c = "#efe9df", dx = -w / 2 + 60 + 26;
+      addBox(g, w, 4, d, c, 0, hgt - 4, 0);
+      addBox(g, 52, hgt - 4, d - 2, c, dx, 0, -1);
+      [1, 2].forEach((i) => addBox(g, 50, 0.8, 0.8, "#cfc6b8", dx, ((hgt - 4) * i) / 3, d / 2 - 1.7, false));
+      addBox(g, 3, hgt - 4, d, c, w / 2 - 1.5, 0, 0);
+      const mx = w / 2 - 32;
+      const ring = addGeo(g, new THREE.CylinderGeometry(17, 17, 1.5, 28), glowMat(), mx, hgt + 26, back + 9, 1, 1, 1.3);
+      ring.rotation.x = Math.PI / 2;
+      const glass = addGeo(g, new THREE.CylinderGeometry(15, 15, 1.6, 28), "#dfe6e8", mx, hgt + 26, back + 9.4, 1, 1, 1.3);
+      glass.rotation.x = Math.PI / 2;
+      addBox(g, 10, 4, 8, c, mx, hgt, back + 9);
+      addBox(g, 22, 30, 2, "#3b3632", mx - 40, hgt, back + 4);
+      addGeo(g, new THREE.CylinderGeometry(3.5, 4.5, 14, 14), C.white, dx, hgt + 7, back + 10);
+      break;
+    }
+    case "storagesofa": {
+      // 收納沙發（參考圖）：淺木抽屜底座＋奶油白坐墊與靠墊、抱枕與毯子
+      const base = 24, oak = "#d8bd96", nDr = Math.max(2, Math.round(w / 48)), dw = w / nDr, sd = d - 20;
+      addBox(g, w - 4, 5, d - 6, "#8a7258", 0, 0, -3, false);
+      addBox(g, w, base - 5, d, oak, 0, 5);
+      for (let i = 0; i < nDr; i++) {
+        const x = -w / 2 + dw * (i + 0.5);
+        addBox(g, dw - 1.2, base - 7, 1, oak, x, 6, d / 2 + 0.5);
+        addBox(g, dw * 0.4, 1, 0.6, "#a98d68", x, base - 5, d / 2 + 1.1, false);
+      }
+      [0, 1, 2].forEach((k) => {
+        const x = -w / 2 + (w / 3) * (k + 0.5);
+        addBox(g, w / 3 - 1.5, 16, sd, C.linen, x, base, back + 20 + sd / 2);
+        addBox(g, w / 3 - 2, 40, 18, C.linen, x, base + 14, back + 10);
+      });
+      [["#e9e1d4", -0.36], ["#cfc4b6", -0.2], ["#efe8dc", 0.05], ["#b9b2a8", 0.22]].forEach(([c, f]) =>
+        addBox(g, 34, 30, 10, c, w * f, base + 18, back + 24));
+      addBox(g, 30, 3, sd + 4, "#ece4d6", w / 2 - 22, base + 16, back + 20 + sd / 2);
+      break;
+    }
+    case "pedestaldesk": {
+      // 沙發旁書桌（參考圖）：淺木桌面，-x 端（接沙發）側板落地，+x 端三抽桌下櫃
+      const oak = "#d8bd96", pw = Math.min(40, w * 0.45);
+      addBox(g, w, 4, d, oak, 0, hgt - 4, 0);
+      addBox(g, 3, hgt - 4, d, oak, -w / 2 + 1.5, 0, 0);
+      addBox(g, pw, hgt - 4, d, oak, w / 2 - pw / 2, 0, 0);
+      [1, 2].forEach((i) => addBox(g, pw - 2, 0.8, 0.8, "#a98d68", w / 2 - pw / 2, ((hgt - 4) * i) / 3, d / 2 + 0.3, false));
+      addGeo(g, new THREE.CylinderGeometry(4, 5, 16, 16), C.white, w / 2 - 12, hgt + 8, back + 10);
+      addBox(g, 24, 1, 17, "#4a4542", -w * 0.1, hgt, 0);
+      break;
+    }
+    case "wallpanel": {
+      addBox(g, w, hgt, d, "#dcc6a2", 0, 0, 0);
+      break;
+    }
     case "closet": {
-      // 開放式衣櫃（參考圖）：奶油白折門（兩側收折打開）、黑色頂天立柱＋金屬帽、胡桃木層板（離地 210）、
+      // 立柱衣櫃（參考圖）：奶油白滑門（關閉）、黑色頂天立柱＋金屬帽、胡桃木層板（離地 210）、
       // 左格吊衣＋透明收納抽屜、中格長版吊衣、右格雙層吊桿（200／120，下層掛牛仔褲）
       const top = Math.min(hgt, wallH), sh = Math.min(210, top - 15);
       addBox(g, w, top, 1.5, C.cream, 0, 0, back + 0.75);
@@ -1507,12 +1604,14 @@ function buildItem(it, wallH) {
       }));
       // 層板上的棉被
       [xs[0] + 18, xs[1] + 20, xs[2] + 22].forEach((x) => [0, 1, 2].forEach((k) => addBox(g, 36, 6, 34, k % 2 ? "#f4efe6" : "#ece4d6", x, sh + 2.5 + k * 6, -6)));
-      // 折門：每側三片（寬 w/6），收折後垂直於櫃面、往前凸出一片寬
-      const pw = w / 6;
-      [-1, 1].forEach((s) => [0, 1, 2].forEach((k) => {
-        addBox(g, 2, top - 4, pw, C.cream, s * (w / 2 - 1 - k * 2.4), 2, d / 2 + pw / 2);
-        if (k === 2) addGeo(g, new THREE.SphereGeometry(1.2, 10, 8), "#8a6a45", s * (w / 2 - 1 - k * 2.4) - s * 1.6, 105, d / 2 + pw - 6);
-      }));
+      // 滑門（關閉）：奶油白門片前後兩軌交錯、相鄰重疊 4cm，門邊內嵌把手溝，上方軌道
+      const nP = Math.max(2, Math.round(w / 90)), pw = (w - 4) / nP;
+      for (let k = 0; k < nP; k++) {
+        const x = -w / 2 + 2 + pw * (k + 0.5), z = d / 2 + (k % 2 ? 1.2 : 3.6);
+        addBox(g, pw + 4, top - 6, 2, C.cream, x, 2, z);
+        addBox(g, 1.2, 40, 0.6, "#b9b0a3", x + (k % 2 ? -1 : 1) * (pw / 2 - 3), 90, z + 1.1, false);
+      }
+      addBox(g, w, 4, 6, "#d8d0c4", 0, top - 4, d / 2 + 2.4);
       break;
     }
     case "wardrobe": case "storage": {
@@ -1705,7 +1804,7 @@ const PAINTS = [
   { k: "blush", n: "乾燥玫瑰", hex: "#d8b8ad" }, { k: "terracotta", n: "陶土", hex: "#c08b6b" }, { k: "caramel", n: "焦糖", hex: "#b07a4b" },
 ];
 const PAINT = Object.fromEntries(PAINTS.map((p) => [p.k, p]));
-const FLOOR_ROOM = ["客廳", "玄關", "餐廳", "餐廳", "臥室", "主臥", "走道", "次臥", "主浴", "客浴", "廚房", "工作陽台"]; // 與 FLOORS 同序
+const FLOOR_ROOM = ["客廳", "玄關", "餐廳", "餐廳", "臥室", "主臥", "走道", "次臥", "主浴", "客浴", "廚房", "工作陽台", "主臥"]; // 與 FLOORS 同序
 const FIN_ROOMS = ["客廳", "餐廳", "玄關", "臥室", "主臥", "次臥", "走道", "主浴", "客浴", "廚房", "工作陽台"];
 const roomAt = (x, y) => {
   const i = FLOORS.findIndex(([x1, y1, x2, y2]) => x >= x1 && x <= x2 && y >= y1 && y <= y2);
@@ -2228,12 +2327,10 @@ const PANO_ROOMS = [...new Set(FLOOR_ROOM)].map((n) => {
 });
 // 每個空間的觀景點：只在該空間的地板範圍內找，離牆與傢俱夠遠、又接近中心的位置（人站得進去的地方）
 function panoSpot(room, items) {
-  // 折門衣櫃收折的門片會往前凸出約一片門寬，站位時一併避開
-  const pad = (i, b) => (i.type === "closet" ? { x1: b.x1 - i.w / 6, y1: b.y1 - i.w / 6, x2: b.x2 + i.w / 6, y2: b.y2 + i.w / 6 } : b);
-  const bs = [...WALL_BOXES, ...items.filter((i) => !noCollide(i.type)).map((i) => pad(i, boxOf(i)))];
+  const bs = [...WALL_BOXES, ...items.filter((i) => !noCollide(i.type)).map(boxOf)];
   const [x1, y1, x2, y2] = room.main, cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
   let best = null, bestScore = -Infinity;
-  for (const need of [40, 25]) {
+  for (const need of [40, 25, 12]) {
     for (const [rx1, ry1, rx2, ry2] of room.rects) for (let x = rx1 + 20; x <= rx2 - 20; x += 10) for (let y = ry1 + 20; y <= ry2 - 20; y += 10) {
       let clr = Infinity;
       for (const b of bs) { const dx = Math.max(b.x1 - x, 0, x - b.x2), dy = Math.max(b.y1 - y, 0, y - b.y2); if ((clr = Math.min(clr, Math.hypot(dx, dy))) < need) break; }
