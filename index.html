@@ -833,7 +833,7 @@ function snapMeasure(p, items, tol) {
   return { x, y };
 }
 
-function Plan2D({ items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, measure, measures, pending, onMeasureTap, showOutlets, blockedOutlets }) {
+function Plan2D({ items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, measure, measures, pending, onMeasureTap, showOutlets, blockedOutlets, locked }) {
   const svgRef = useRef(null);
   const ptrs = useRef(new Map());
   const g = useRef(null);
@@ -851,7 +851,7 @@ function Plan2D({ items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, m
     g.current = { type: "pinch", dist: Math.hypot(a.x - b.x, a.y - b.y), vb: { ...vb } };
   };
   const onItemDown = (e, it) => {
-    if (measure) return; // 量測模式：交給背景處理，不選取、不拖曳
+    if (measure || locked) return; // 量測模式或鎖定中：交給背景處理（平移／縮放），不選取、不拖曳
     e.stopPropagation();
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     svgRef.current.setPointerCapture(e.pointerId);
@@ -3683,6 +3683,15 @@ function App() {
   const [outletUI, setOutletUI] = useState(false);
   const [confirmOutlets, setConfirmOutlets] = useState(false);
   const [measure, setMeasure] = useState(false);
+  // 鎖定：預設只能看（平移、縮放、轉視角），按「修改」才能選取、拖曳、編輯物件
+  const [editing, setEditing] = useState(false);
+  const toggleEdit = () => {
+    setEditing((v) => {
+      if (v) setSel(null);
+      setStatus(v ? "已鎖定，只能瀏覽" : "修改模式：可以選取、拖曳與編輯物件");
+      return !v;
+    });
+  };
   const [measures, setMeasures] = useState([]);
   const [pending, setPending] = useState(null);
 
@@ -3965,13 +3974,14 @@ function App() {
   const remove = () => { setItems((a) => a.filter((i) => i.id !== sel)); setSel(null); };
   useEffect(() => {
     const kd = (e) => {
-      if (e.key !== "Delete" || !sel || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      if (e.key !== "Delete" || !sel || !editing || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
       setItems((a) => a.filter((i) => i.id !== sel)); setSel(null);
     };
     window.addEventListener("keydown", kd);
     return () => window.removeEventListener("keydown", kd);
-  }, [sel]);
+  }, [sel, editing]);
   const add = (type) => {
+    setEditing(true);
     const cx = snap(vb.x + vb.w / 2), cy = snap(vb.y + vb.h / 2);
     const n = mk(type, cx, cy, 0, isOutlet(type) ? { name: NEW_TAG + LIB[type].name } : {});
     setItems((a) => [...a, n]); setSel(n.id); setAddCat(null);
@@ -4055,8 +4065,9 @@ function App() {
 
     h("main", { className: wide && show2d ? "split" : "" },
       show2d ? h("section", { className: "pane" },
-        h(Plan2D, { items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, measure, measures, pending, onMeasureTap, showOutlets, blockedOutlets }),
+        h(Plan2D, { items, sel, setSel, updateItem, vb, setVb, overlaps, onDrag, measure, measures, pending, onMeasureTap, showOutlets, blockedOutlets, locked: !editing }),
         h("div", { className: "zoom" },
+          h("button", { onClick: toggleEdit, className: "fit" + (editing ? " on" : ""), "aria-pressed": editing, title: editing ? "完成修改並鎖定" : "解鎖以修改物件" }, editing ? "完成" : "修改"),
           h("button", { onClick: () => setShowOutlets((v) => !v), className: "fit" + (showOutlets ? " on" : ""), "aria-pressed": showOutlets }, "插座"),
           h("button", { onClick: toggleMeasure, className: "fit" + (measure ? " on" : ""), "aria-pressed": measure }, "量測"),
           h("button", { onClick: () => zoomBy(0.8), "aria-label": "放大" }, "＋"),
@@ -4199,7 +4210,7 @@ function App() {
               v.name, h("small", null, isOutlet(k) ? `離地 ${v.h}` : `${v.w}×${v.d}`)))))) : null,
 
     // 下方列只在選取物件或調整搭配時出現，平常把空間留給畫面
-    !pano && (finUI || selItem) ? h("footer", null,
+    !pano && (finUI || (selItem && editing)) ? h("footer", null,
       finUI ? finishBar : h("div", { className: "edit" },
         h("div", { className: "row1" },
           h("input", { className: "nm", value: selItem.name, onChange: (e) => updateItem(sel, { name: e.target.value }) }),
